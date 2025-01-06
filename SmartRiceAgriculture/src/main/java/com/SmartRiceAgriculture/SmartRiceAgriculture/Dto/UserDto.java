@@ -18,7 +18,7 @@ public class UserDto {
     private String email;
     private String phoneNumber;
     private User.Role role;
-    private String status;
+    private User.Status status;
 
     // Farmer fields
     private String bankName;
