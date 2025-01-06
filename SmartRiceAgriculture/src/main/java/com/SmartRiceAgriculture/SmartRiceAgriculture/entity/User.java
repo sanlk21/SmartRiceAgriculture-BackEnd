@@ -2,58 +2,118 @@ package com.SmartRiceAgriculture.SmartRiceAgriculture.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
 
+import java.util.Collection;
 import java.util.List;
 
 @Entity
-@AllArgsConstructor
-@NoArgsConstructor
 @Data
-@Table(name = "user")
-public class User {
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Table(name = "users")
+public class User implements UserDetails {
 
     @Id
     @Column(nullable = false, unique = true)
-    private String nic;  // Primary key (Unique Identifier)
+    private String nic;
 
     @Column(nullable = false)
-    private String fullName; // Full Name of the user
-
-    @Column(nullable = false)
-    private String username; // Username for the user account
-
-    @Column(nullable = false)
-    private String password; // User account password
-
-    @Column(nullable = false)
-    private String address; // User's address
+    private String fullName;
 
     @Column(nullable = false, unique = true)
-    private String email; // Email of the user (must be unique)
+    private String username;
+
+    @Column(nullable = false)
+    private String password;
+
+    @Column(nullable = false)
+    private String address;
+
+    @Column(nullable = false, unique = true)
+    private String email;
+
+    @Column(nullable = false)
+    private String phoneNumber;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private Role role; // Role: FARMER, BUYER, or ADMIN
+    private Role role;
 
-    // Farmer-specific fields
-    @ElementCollection
-    @CollectionTable(name = "yield_addresses", joinColumns = @JoinColumn(name = "user_nic"))
-    private List<String> yieldAddresses; // List of yield addresses for farmers
+    // Farmer fields
+    private String bankName;
+    private String bankBranch;
+    private String accountNumber;
+    private String accountHolderName;
+    private Double expectedCropAmount;
 
-    @ElementCollection
-    @CollectionTable(name = "crop_types", joinColumns = @JoinColumn(name = "user_nic"))
-    private List<String> cropTypes; // List of crop types for farmers
+    @OneToMany(mappedBy = "farmer", cascade = CascadeType.ALL)
+    private List<RiceVariety> riceVarieties;
 
-    private String landSize; // Land size for farmers
+    @OneToOne(mappedBy = "farmer", cascade = CascadeType.ALL)
+    private FertilizerQuota fertilizerQuota;
 
-    private String expectedCropAmount; // Expected crop amount for farmers
+    // Buyer fields
+    private String storeLocation;
+    private String companyName;
+    private String businessRegNumber;
 
-    // Buyer-specific field
-    private String storeLocation; // Store location for buyers
+    @OneToMany(mappedBy = "buyer")
+    private List<Transaction> purchaseHistory;
+
+    @Enumerated(EnumType.STRING)
+    private Status status = Status.ACTIVE;
 
     public enum Role {
-        FARMER, BUYER, ADMIN
+        FARMER,
+        BUYER,
+        ADMIN
+    }
+
+    public enum Status {
+        ACTIVE,
+        INACTIVE
+    }
+
+    // UserDetails interface implementation
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
+    }
+
+    @Override
+    public String getUsername() {
+        return username;
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return status == Status.ACTIVE;
     }
 }
