@@ -1,7 +1,5 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.config;
 
-import com.SmartRiceAgriculture.SmartRiceAgriculture.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

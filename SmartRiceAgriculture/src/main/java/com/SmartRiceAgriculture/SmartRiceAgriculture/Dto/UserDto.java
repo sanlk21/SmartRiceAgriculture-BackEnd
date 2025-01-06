@@ -1,12 +1,12 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.Dto;
 
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.User;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
+
 import java.util.List;
 
-@Data
+@Getter
+@Setter
 @AllArgsConstructor
 @NoArgsConstructor
 public class UserDto {
