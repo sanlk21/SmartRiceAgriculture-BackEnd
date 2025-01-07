@@ -1,127 +1,101 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.service;
 
-import com.SmartRiceAgriculture.SmartRiceAgriculture.Dto.UserDto;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.LoginDTO;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.UserDTO;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.UserResponseDTO;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.UserRepository;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.User;
-import com.SmartRiceAgriculture.SmartRiceAgriculture.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.stream.Collectors;
-
 @Service
+@RequiredArgsConstructor
 public class UserService {
 
-    @Autowired
-    private UserRepository userRepository;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    public UserResponseDTO registerUser(UserDTO userDTO) {
+        // Validate unique fields
+        validateUniqueFields(userDTO);
 
-    public UserDto createUser(UserDto userDto) {
-        User user = convertToEntity(userDto);
-        user.setPassword(passwordEncoder.encode(userDto.getPassword()));
+        // Create user entity
+        User user = User.builder()
+                .nic(userDTO.getNic())
+                .fullName(userDTO.getFullName())
+                .username(userDTO.getUsername())
+                .password(passwordEncoder.encode(userDTO.getPassword()))
+                .address(userDTO.getAddress())
+                .email(userDTO.getEmail())
+                .phoneNumber(userDTO.getPhoneNumber())
+                .role(userDTO.getRole())
+                .status(User.Status.ACTIVE)
+                .build();
+
+        // Set role-specific fields
+        if (userDTO.getRole() == User.Role.FARMER) {
+            setFarmerFields(user, userDTO);
+        } else if (userDTO.getRole() == User.Role.BUYER) {
+            setBuyerFields(user, userDTO);
+        }
+
         User savedUser = userRepository.save(user);
-        return convertToDto(savedUser);
+        return convertToResponseDTO(savedUser);
     }
 
-    public UserDto getUserByNic(String nic) {
-        User user = userRepository.findById(nic)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        return convertToDto(user);
-    }
-
-    public List<UserDto> getAllUsers() {
-        return userRepository.findAll().stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
-    }
-
-    public UserDto updateUser(String nic, UserDto userDto) {
-        User existingUser = userRepository.findById(nic)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        updateUserFields(existingUser, userDto);
-        User updatedUser = userRepository.save(existingUser);
-        return convertToDto(updatedUser);
-    }
-
-    public void deleteUser(String nic) {
-        if (!userRepository.existsById(nic)) {
-            throw new RuntimeException("User not found");
+    public UserResponseDTO login(LoginDTO loginDTO) {
+        User user = userRepository.findByUsername(loginDTO.getUsername());
+        if (user != null && passwordEncoder.matches(loginDTO.getPassword(), user.getPassword())) {
+            return convertToResponseDTO(user);
         }
-        userRepository.deleteById(nic);
+        throw new RuntimeException("Invalid username or password");
     }
 
-    private User convertToEntity(UserDto dto) {
-        User user = new User();
-        user.setNic(dto.getNic());
-        user.setUsername(dto.getUsername());
-        user.setPassword(dto.getPassword()); // Add this line
-        user.setFullName(dto.getFullName());
-        user.setEmail(dto.getEmail());
-        user.setPhoneNumber(dto.getPhoneNumber());
-        user.setAddress(dto.getAddress());
-        user.setRole(dto.getRole());
-        user.setStatus(dto.getStatus()); // Add status
-
-        if (dto.getRole() == User.Role.FARMER) {
-            user.setBankName(dto.getBankName());
-            user.setBankBranch(dto.getBankBranch());
-            user.setAccountNumber(dto.getAccountNumber());
-            user.setAccountHolderName(dto.getAccountHolderName());
-            user.setExpectedCropAmount(dto.getExpectedCropAmount());
-        } else if (dto.getRole() == User.Role.BUYER) {
-            user.setCompanyName(dto.getCompanyName());
-            user.setBusinessRegNumber(dto.getBusinessRegNumber());
-            user.setStoreLocation(dto.getStoreLocation());
+    private void validateUniqueFields(UserDTO userDTO) {
+        if (userRepository.existsById(userDTO.getNic())) {
+            throw new RuntimeException("NIC already registered");
         }
-
-        return user;
+        if (userRepository.existsByUsername(userDTO.getUsername())) {
+            throw new RuntimeException("Username already taken");
+        }
+        if (userRepository.existsByEmail(userDTO.getEmail())) {
+            throw new RuntimeException("Email already registered");
+        }
     }
 
-    private UserDto convertToDto(User user) {
-        UserDto dto = new UserDto();
-        dto.setNic(user.getNic());
-        dto.setUsername(user.getUsername());
-        dto.setFullName(user.getFullName());
-        dto.setEmail(user.getEmail());
-        dto.setPhoneNumber(user.getPhoneNumber());
-        dto.setAddress(user.getAddress());
-        dto.setRole(user.getRole());
-
-        if (user.getRole() == User.Role.FARMER) {
-            dto.setBankName(user.getBankName());
-            dto.setBankBranch(user.getBankBranch());
-            dto.setAccountNumber(user.getAccountNumber());
-            dto.setAccountHolderName(user.getAccountHolderName());
-            dto.setExpectedCropAmount(user.getExpectedCropAmount());
-        } else if (user.getRole() == User.Role.BUYER) {
-            dto.setCompanyName(user.getCompanyName());
-            dto.setBusinessRegNumber(user.getBusinessRegNumber());
-            dto.setStoreLocation(user.getStoreLocation());
-        }
-
-        return dto;
+    private void setFarmerFields(User user, UserDTO userDTO) {
+        user.setBankName(userDTO.getBankName());
+        user.setBankBranch(userDTO.getBankBranch());
+        user.setAccountNumber(userDTO.getAccountNumber());
+        user.setAccountHolderName(userDTO.getAccountHolderName());
+        user.setExpectedCropAmount(userDTO.getExpectedCropAmount());
     }
 
-    private void updateUserFields(User user, UserDto dto) {
-        user.setFullName(dto.getFullName());
-        user.setEmail(dto.getEmail());
-        user.setPhoneNumber(dto.getPhoneNumber());
-        user.setAddress(dto.getAddress());
+    private void setBuyerFields(User user, UserDTO userDTO) {
+        user.setStoreLocation(userDTO.getStoreLocation());
+        user.setCompanyName(userDTO.getCompanyName());
+        user.setBusinessRegNumber(userDTO.getBusinessRegNumber());
+    }
 
-        if (user.getRole() == User.Role.FARMER) {
-            user.setBankName(dto.getBankName());
-            user.setBankBranch(dto.getBankBranch());
-            user.setAccountNumber(dto.getAccountNumber());
-            user.setAccountHolderName(dto.getAccountHolderName());
-            user.setExpectedCropAmount(dto.getExpectedCropAmount());
-        } else if (user.getRole() == User.Role.BUYER) {
-            user.setCompanyName(dto.getCompanyName());
-            user.setBusinessRegNumber(dto.getBusinessRegNumber());
-            user.setStoreLocation(dto.getStoreLocation());
-        }
+    private UserResponseDTO convertToResponseDTO(User user) {
+        return UserResponseDTO.builder()
+                .nic(user.getNic())
+                .fullName(user.getFullName())
+                .username(user.getUsername())
+                .address(user.getAddress())
+                .email(user.getEmail())
+                .phoneNumber(user.getPhoneNumber())
+                .role(user.getRole())
+                .status(user.getStatus())
+                .bankName(user.getBankName())
+                .bankBranch(user.getBankBranch())
+                .accountNumber(user.getAccountNumber())
+                .accountHolderName(user.getAccountHolderName())
+                .expectedCropAmount(user.getExpectedCropAmount())
+                .storeLocation(user.getStoreLocation())
+                .companyName(user.getCompanyName())
+                .businessRegNumber(user.getBusinessRegNumber())
+                .build();
     }
 }

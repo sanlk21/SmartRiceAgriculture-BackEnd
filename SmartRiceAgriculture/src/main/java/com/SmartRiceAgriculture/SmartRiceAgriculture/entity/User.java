@@ -53,19 +53,10 @@ public class User implements UserDetails {
     private String accountHolderName;
     private Double expectedCropAmount;
 
-    @OneToMany(mappedBy = "farmer", cascade = CascadeType.ALL)
-    private List<RiceVariety> riceVarieties;
-
-    @OneToOne(mappedBy = "farmer", cascade = CascadeType.ALL)
-    private FertilizerQuota fertilizerQuota;
-
     // Buyer fields
     private String storeLocation;
     private String companyName;
     private String businessRegNumber;
-
-    @OneToMany(mappedBy = "buyer")
-    private List<Transaction> purchaseHistory;
 
     @Enumerated(EnumType.STRING)
     private Status status = Status.ACTIVE;
@@ -81,20 +72,9 @@ public class User implements UserDetails {
         INACTIVE
     }
 
-    // UserDetails interface implementation
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
-    }
-
-    @Override
-    public String getUsername() {
-        return username;
-    }
-
-    @Override
-    public String getPassword() {
-        return password;
     }
 
     @Override
