@@ -35,9 +35,9 @@ public class Land {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private LandStatus status = LandStatus.PENDING;
+    private LandStatus status = LandStatus.PENDING; // Only set initial status to PENDING
 
-    // Fertilizer quotas - stored in database
+    // Fertilizer quotas will be automatically calculated
     private Float nitrogenQuota;
     private Float phosphorusQuota;
     private Float potassiumQuota;

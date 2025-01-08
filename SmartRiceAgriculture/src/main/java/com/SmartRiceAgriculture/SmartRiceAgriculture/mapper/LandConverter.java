@@ -7,6 +7,9 @@ import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Land;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.enums.LandStatus;
 import org.springframework.stereotype.Component;
 
+import static com.SmartRiceAgriculture.SmartRiceAgriculture.enums.LandStatus.APPROVED;
+import static com.SmartRiceAgriculture.SmartRiceAgriculture.enums.LandStatus.REJECTED;
+
 @Component
 public class LandConverter {
 
@@ -17,6 +20,8 @@ public class LandConverter {
         land.setLocation(dto.getLocation());
         land.setDistrict(dto.getDistrict());
         land.setStatus(LandStatus.PENDING);
+//        land.setStatus(LandStatus.APPROVED);
+//        land.setStatus(LandStatus.REJECTED);
         return land;
     }
 
