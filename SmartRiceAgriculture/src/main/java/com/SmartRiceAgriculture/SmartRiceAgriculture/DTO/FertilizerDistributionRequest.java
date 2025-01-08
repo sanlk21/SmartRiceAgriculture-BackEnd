@@ -1,0 +1,15 @@
+package com.SmartRiceAgriculture.SmartRiceAgriculture.DTO;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class FertilizerDistributionRequest {
+    private String distributionLocation;
+    private String referenceNumber;
+}
