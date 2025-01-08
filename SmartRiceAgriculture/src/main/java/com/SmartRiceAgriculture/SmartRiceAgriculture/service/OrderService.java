@@ -1,14 +1,15 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.service;
 
-
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.OrderPaymentRequest;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.OrderResponse;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Order;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.User;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Notification;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.OrderRepository;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 import jakarta.persistence.EntityNotFoundException;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
 public class OrderService {
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     // Create order from successful bid
     public OrderResponse createOrder(Long bidId, String buyerNic, String farmerNic,
@@ -41,7 +43,24 @@ public class OrderService {
         order.setFarmerAccountNumber(farmer.getAccountNumber());
         order.setFarmerAccountHolderName(farmer.getAccountHolderName());
 
-        return convertToResponse(orderRepository.save(order));
+        Order savedOrder = orderRepository.save(order);
+
+        // Notify both parties about order creation
+        notificationService.createOrderNotification(
+                farmerNic,
+                savedOrder.getId(),
+                savedOrder.getOrderNumber(),
+                Notification.NotificationType.ORDER_CREATED
+        );
+
+        notificationService.createOrderNotification(
+                buyerNic,
+                savedOrder.getId(),
+                savedOrder.getOrderNumber(),
+                Notification.NotificationType.ORDER_CREATED
+        );
+
+        return convertToResponse(savedOrder);
     }
 
     // Update payment details
@@ -58,7 +77,64 @@ public class OrderService {
         order.setPaymentDate(LocalDateTime.now());
         order.setStatus(Order.OrderStatus.PAYMENT_COMPLETED);
 
-        return convertToResponse(orderRepository.save(order));
+        Order savedOrder = orderRepository.save(order);
+
+        // Notify farmer about payment
+        notificationService.createPaymentNotification(
+                order.getFarmerNic(),
+                order.getId(),
+                order.getOrderNumber(),
+                Notification.NotificationType.PAYMENT_RECEIVED,
+                order.getTotalAmount()
+        );
+
+        // Notify buyer about payment confirmation
+        notificationService.createPaymentNotification(
+                order.getBuyerNic(),
+                order.getId(),
+                order.getOrderNumber(),
+                Notification.NotificationType.PAYMENT_RECEIVED,
+                order.getTotalAmount()
+        );
+
+        return convertToResponse(savedOrder);
+    }
+
+    // Check payment deadlines every minute
+    @Scheduled(fixedRate = 60000)
+    public void processOrders() {
+        List<Order> pendingOrders = orderRepository.findByStatus(Order.OrderStatus.PENDING_PAYMENT);
+
+        for(Order order : pendingOrders) {
+            if(LocalDateTime.now().isAfter(order.getPaymentDeadline())) {
+                order.setStatus(Order.OrderStatus.CANCELLED);
+                orderRepository.save(order);
+
+                // Notify both parties about cancellation
+                notificationService.createOrderNotification(
+                        order.getBuyerNic(),
+                        order.getId(),
+                        order.getOrderNumber(),
+                        Notification.NotificationType.ORDER_STATUS_CHANGE
+                );
+
+                notificationService.createOrderNotification(
+                        order.getFarmerNic(),
+                        order.getId(),
+                        order.getOrderNumber(),
+                        Notification.NotificationType.ORDER_STATUS_CHANGE
+                );
+            } else if(order.getPaymentDeadline().minusHours(2).isBefore(LocalDateTime.now())) {
+                // Send payment reminder 2 hours before deadline
+                notificationService.createPaymentNotification(
+                        order.getBuyerNic(),
+                        order.getId(),
+                        order.getOrderNumber(),
+                        Notification.NotificationType.PAYMENT_REMINDER,
+                        order.getTotalAmount()
+                );
+            }
+        }
     }
 
     // Admin: Get all orders
@@ -107,8 +183,35 @@ public class OrderService {
 
     // Get single order details
     public OrderResponse getOrderDetails(Long orderId) {
-        return convertToResponse(orderRepository.findById(orderId)
-                .orElseThrow(() -> new EntityNotFoundException("Order not found")));
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new EntityNotFoundException("Order not found"));
+        return convertToResponse(order);
+    }
+
+    // Update order status (admin function)
+    public OrderResponse updateOrderStatus(Long orderId, Order.OrderStatus newStatus) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new EntityNotFoundException("Order not found"));
+
+        order.setStatus(newStatus);
+        Order savedOrder = orderRepository.save(order);
+
+        // Notify both parties about status change
+        notificationService.createOrderNotification(
+                order.getBuyerNic(),
+                order.getId(),
+                order.getOrderNumber(),
+                Notification.NotificationType.ORDER_STATUS_CHANGE
+        );
+
+        notificationService.createOrderNotification(
+                order.getFarmerNic(),
+                order.getId(),
+                order.getOrderNumber(),
+                Notification.NotificationType.ORDER_STATUS_CHANGE
+        );
+
+        return convertToResponse(savedOrder);
     }
 
     private OrderResponse convertToResponse(Order order) {

@@ -5,6 +5,7 @@ import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.BidOfferRequest;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.BidOfferResponse;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.BidResponse;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Bid;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Notification;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.BidRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,6 +24,7 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class BidService {
     private final BidRepository bidRepository;
+    private final NotificationService notificationService;
 
     // Create a new bid listing (by farmer)
     public BidResponse createBid(BidCreateRequest request) {
@@ -35,8 +37,19 @@ public class BidService {
         bid.setRiceVariety(request.getRiceVariety());
         bid.setDescription(request.getDescription());
         bid.setLocation(request.getLocation());
+        bid.setStatus(Bid.BidStatus.ACTIVE);
 
-        return convertToResponse(bidRepository.save(bid));
+        Bid savedBid = bidRepository.save(bid);
+
+        // Send notification to farmer confirming bid creation
+        notificationService.createBidNotification(
+                farmerNic,
+                savedBid.getId(),
+                Notification.NotificationType.BID_PLACED,
+                savedBid.getMinimumPrice().toString()
+        );
+
+        return convertToResponse(savedBid);
     }
 
     // Place a bid (by buyer)
@@ -57,7 +70,17 @@ public class BidService {
         Bid.BidOffer bidOffer = new Bid.BidOffer(buyerNic, request.getBidAmount(), LocalDateTime.now());
         bid.getBidOffers().add(bidOffer);
 
-        return convertToResponse(bidRepository.save(bid));
+        Bid savedBid = bidRepository.save(bid);
+
+        // Notify farmer about new bid
+        notificationService.createBidNotification(
+                bid.getFarmerNic(),
+                bid.getId(),
+                Notification.NotificationType.BID_PLACED,
+                request.getBidAmount().toString()
+        );
+
+        return convertToResponse(savedBid);
     }
 
     // Cancel bid (by farmer)
@@ -76,7 +99,19 @@ public class BidService {
         }
 
         bid.setStatus(Bid.BidStatus.CANCELLED);
-        return convertToResponse(bidRepository.save(bid));
+        Bid savedBid = bidRepository.save(bid);
+
+        // Notify all bidders about cancellation
+        for (Bid.BidOffer offer : bid.getBidOffers()) {
+            notificationService.createBidNotification(
+                    offer.getBuyerNic(),
+                    bid.getId(),
+                    Notification.NotificationType.BID_REJECTED,
+                    offer.getBidAmount().toString()
+            );
+        }
+
+        return convertToResponse(savedBid);
     }
 
     // Get filtered and sorted bids
@@ -145,6 +180,19 @@ public class BidService {
                 .orElseThrow(() -> new EntityNotFoundException("Bid not found"));
 
         bid.setStatus(newStatus);
+
+        // Notify relevant parties about status change
+        if (newStatus == Bid.BidStatus.COMPLETED) {
+            for (Bid.BidOffer offer : bid.getBidOffers()) {
+                notificationService.createBidNotification(
+                        offer.getBuyerNic(),
+                        bid.getId(),
+                        Notification.NotificationType.BID_ACCEPTED,
+                        offer.getBidAmount().toString()
+                );
+            }
+        }
+
         return convertToResponse(bidRepository.save(bid));
     }
 
@@ -156,6 +204,21 @@ public class BidService {
         bid.setWinningBidAmount(amount);
         bid.setWinningBidDate(LocalDateTime.now());
         bid.setStatus(Bid.BidStatus.COMPLETED);
+
+        // Notify winner and farmer
+        notificationService.createBidNotification(
+                buyerNic,
+                bid.getId(),
+                Notification.NotificationType.BID_ACCEPTED,
+                amount.toString()
+        );
+
+        notificationService.createBidNotification(
+                bid.getFarmerNic(),
+                bid.getId(),
+                Notification.NotificationType.BID_ACCEPTED,
+                amount.toString()
+        );
 
         return convertToResponse(bidRepository.save(bid));
     }
@@ -203,7 +266,7 @@ public class BidService {
     }
 
     // Scheduled task to process expired bids
-    @Scheduled(fixedRate = 3600000) // Run every hour
+    @Scheduled(fixedRate = 60000) // Run every minute
     public void processExpiredBids() {
         List<Bid> expiredBids = bidRepository.findExpiredBids(LocalDateTime.now());
 
@@ -220,8 +283,42 @@ public class BidService {
                 bid.setWinningBidAmount(winningOffer.getBidAmount());
                 bid.setWinningBidDate(winningOffer.getBidDate());
                 bid.setStatus(Bid.BidStatus.COMPLETED);
+
+                // Notify winning buyer
+                notificationService.createBidNotification(
+                        winningOffer.getBuyerNic(),
+                        bid.getId(),
+                        Notification.NotificationType.BID_ACCEPTED,
+                        winningOffer.getBidAmount().toString()
+                );
+
+                // Notify other buyers
+                bid.getBidOffers().stream()
+                        .filter(offer -> !offer.getBuyerNic().equals(winningOffer.getBuyerNic()))
+                        .forEach(offer -> notificationService.createBidNotification(
+                                offer.getBuyerNic(),
+                                bid.getId(),
+                                Notification.NotificationType.BID_REJECTED,
+                                offer.getBidAmount().toString()
+                        ));
+
+                // Notify farmer
+                notificationService.createBidNotification(
+                        bid.getFarmerNic(),
+                        bid.getId(),
+                        Notification.NotificationType.BID_ACCEPTED,
+                        winningOffer.getBidAmount().toString()
+                );
             } else {
                 bid.setStatus(Bid.BidStatus.EXPIRED);
+
+                // Notify farmer about expired bid with no offers
+                notificationService.createBidNotification(
+                        bid.getFarmerNic(),
+                        bid.getId(),
+                        Notification.NotificationType.BID_EXPIRED,
+                        null
+                );
             }
             bidRepository.save(bid);
         }
