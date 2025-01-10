@@ -1,37 +1,44 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.service;
 
-import org.python.util.PythonInterpreter;
 import org.springframework.stereotype.Service;
-import org.springframework.core.io.ClassPathResource;
-import java.io.IOException;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.util.Arrays;
 
 @Service
 public class PythonMLService {
-    private final PythonInterpreter interpreter;
-
-    public PythonMLService() {
-        interpreter = new PythonInterpreter();
-        initializePythonScript();
-    }
-
-    private void initializePythonScript() {
-        try {
-            // Load Python script
-            ClassPathResource resource = new ClassPathResource("ml/weather_predict.py");
-            interpreter.execfile(resource.getInputStream());
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to load Python script", e);
-        }
-    }
 
     public double[] predictWeather(double[] inputData) {
         try {
-            // Convert Java array to Python list
-            interpreter.set("input_data", inputData);
-            interpreter.exec("predictions = predict_weather(input_data)");
+            // Convert input data to JSON-like format for Python script
+            String inputString = Arrays.toString(inputData);
 
-            // Get predictions back from Python
-            return (double[]) interpreter.get("predictions", double[].class);
+            // Call the Python script using ProcessBuilder
+            ProcessBuilder pb = new ProcessBuilder(
+                    "python3", // Ensure Python 3 is installed and available in PATH
+                    "src/main/resources/ml/weather_predict.py",
+                    inputString
+            );
+
+            // Redirect errors
+            pb.redirectErrorStream(true);
+
+            // Start the process
+            Process process = pb.start();
+
+            // Read the output from the Python script
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line);
+            }
+
+            // Parse the Python script output (expected to be a JSON-like array)
+            String[] results = output.toString().replace("[", "").replace("]", "").split(",");
+            return Arrays.stream(results).mapToDouble(Double::parseDouble).toArray();
+
         } catch (Exception e) {
             throw new RuntimeException("Failed to make weather prediction", e);
         }
