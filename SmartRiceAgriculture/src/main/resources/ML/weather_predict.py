@@ -2,17 +2,18 @@ import sys
 import json
 import numpy as np
 from pathlib import Path
-from tensorflow.keras.models import load_model
+import tensorflow as tf
+from tensorflow import keras
 import joblib
 
 def load_ml_resources():
     try:
         # Get the directory containing this script
-        script_dir = Path(__file__).parent
+        script_dir = Path(__file__).parent.absolute()
 
         # Load model and scalers from the same directory
-        model = load_model(script_dir / 'weather_prediction_model.keras')
-        scalers = joblib.load(script_dir / 'weather_scalers.pkl')
+        model = keras.models.load_model(str(script_dir / 'weather_prediction_model.keras'))
+        scalers = joblib.load(str(script_dir / 'weather_scalers.pkl'))
         return model, scalers
     except Exception as e:
         print(f"Error loading ML resources: {str(e)}", file=sys.stderr)

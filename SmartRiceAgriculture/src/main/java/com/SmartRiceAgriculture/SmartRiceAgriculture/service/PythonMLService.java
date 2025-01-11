@@ -1,5 +1,6 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
@@ -12,14 +13,18 @@ import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
 @Service
-@Slf4j  // Add logging
+@Slf4j
 public class PythonMLService {
     private final String PYTHON_SCRIPT_PATH;
+    private final String PYTHON_EXECUTABLE;
 
     public PythonMLService() {
+        // Get the Python executable path from environment or use default
+        PYTHON_EXECUTABLE = System.getenv().getOrDefault("PYTHON_PATH", "python3");
+
         // Get absolute path of the script
         try {
-            Resource resource = new ClassPathResource("ml/weather_predict.py");
+            Resource resource = new ClassPathResource("ML/weather_predict.py");
             PYTHON_SCRIPT_PATH = resource.getFile().getAbsolutePath();
         } catch (IOException e) {
             throw new RuntimeException("Could not locate Python script", e);
@@ -28,32 +33,28 @@ public class PythonMLService {
 
     public double[] predictWeather(double[] inputData) {
         try {
-            String inputString = Arrays.toString(inputData);
-
-            // Use Python executable path from environment or configuration
-            String pythonPath = System.getenv().getOrDefault("PYTHON_PATH", "python3");
+            // Convert input array to JSON string
+            String inputString = new ObjectMapper().writeValueAsString(inputData);
 
             ProcessBuilder pb = new ProcessBuilder(
-                    pythonPath,
+                    PYTHON_EXECUTABLE,
                     PYTHON_SCRIPT_PATH,
                     inputString
             );
 
             pb.redirectErrorStream(true);
-
             Process process = pb.start();
 
-            // Read output with timeout
+            // Read output
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream()))) {
-
                 StringBuilder output = new StringBuilder();
                 String line;
                 while ((line = reader.readLine()) != null) {
                     output.append(line);
                 }
 
-                // Wait for process to complete with timeout
+                // Wait for process with timeout
                 if (!process.waitFor(30, TimeUnit.SECONDS)) {
                     process.destroyForcibly();
                     throw new RuntimeException("Python script execution timed out");
@@ -64,26 +65,15 @@ public class PythonMLService {
                             + process.exitValue());
                 }
 
-                return parseOutput(output.toString());
+                // Parse output
+                return new ObjectMapper().readValue(
+                        output.toString(),
+                        double[].class
+                );
             }
-
         } catch (Exception e) {
             log.error("Weather prediction failed", e);
             throw new RuntimeException("Failed to make weather prediction", e);
-        }
-    }
-
-    private double[] parseOutput(String output) {
-        try {
-            return Arrays.stream(output.trim()
-                            .replace("[", "")
-                            .replace("]", "")
-                            .split(","))
-                    .map(String::trim)
-                    .mapToDouble(Double::parseDouble)
-                    .toArray();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to parse Python output: " + output, e);
         }
     }
 }
