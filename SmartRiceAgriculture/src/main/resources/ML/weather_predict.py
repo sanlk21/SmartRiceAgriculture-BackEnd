@@ -1,26 +1,47 @@
-import joblib
+import sys
+import json
 import numpy as np
+from pathlib import Path
 from tensorflow.keras.models import load_model
+import joblib
 
-# Load model and scalers
-model = load_model('weather_prediction_model.keras')
-scalers = joblib.load('weather_scalers.pkl')
+def load_ml_resources():
+    try:
+        # Get the directory containing this script
+        script_dir = Path(__file__).parent
+
+        # Load model and scalers from the same directory
+        model = load_model(script_dir / 'weather_prediction_model.keras')
+        scalers = joblib.load(script_dir / 'weather_scalers.pkl')
+        return model, scalers
+    except Exception as e:
+        print(f"Error loading ML resources: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 def predict_weather(input_data):
-    # Convert input data to NumPy array if not already
-    if not isinstance(input_data, np.ndarray):
-        input_data = np.array(input_data)
-    
-    # Scale input data
-    scaled_data = scalers.transform(input_data.reshape(1, -1))
-    
-    # Make prediction
-    prediction = model.predict(scaled_data)
-    
-    # Inverse transform prediction
-    return scalers.inverse_transform(prediction)[0]
+    try:
+        model, scalers = load_ml_resources()
+
+        # Convert input to numpy array
+        input_array = np.array(json.loads(input_data))
+
+        # Scale input data
+        scaled_data = scalers.transform(input_array.reshape(1, -1))
+
+        # Make prediction
+        prediction = model.predict(scaled_data, verbose=0)
+
+        # Inverse transform and return
+        result = scalers.inverse_transform(prediction)[0]
+        print(json.dumps(result.tolist()))
+
+    except Exception as e:
+        print(f"Error making prediction: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
-    # Example input for local testing
-    sample_input = [30.0, 75.0, 15.0]  # Replace with your model's input format
-    print(predict_weather(sample_input))
+    if len(sys.argv) != 2:
+        print("Usage: python weather_predict.py '[input_data_array]'", file=sys.stderr)
+        sys.exit(1)
+
+    predict_weather(sys.argv[1])
