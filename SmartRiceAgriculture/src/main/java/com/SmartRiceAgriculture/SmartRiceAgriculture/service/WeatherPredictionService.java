@@ -70,8 +70,7 @@ public class WeatherPredictionService {
     }
 
     private void setPredictionValues(WeatherPrediction prediction) {
-        // This method will be implemented with actual ML predictions
-        // For now, using placeholder values
+        // Using placeholder values
         prediction.setTemperature(25.0);
         prediction.setRainfall(0.0);
         prediction.setWindSpeed(10.0);
