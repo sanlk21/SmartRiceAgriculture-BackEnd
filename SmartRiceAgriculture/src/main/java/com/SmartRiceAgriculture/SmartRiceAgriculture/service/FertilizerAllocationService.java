@@ -1,17 +1,19 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.service;
 
-
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.*;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.FertilizerAllocation;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Land;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Notification;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.User;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.FertilizerAllocationRepository;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.LandRepository;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.UserRepository;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import jakarta.persistence.EntityNotFoundException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -23,62 +25,122 @@ public class FertilizerAllocationService {
     private final FertilizerAllocationRepository fertilizerAllocationRepository;
     private final LandRepository landRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
-    public FertilizerAllocationResponse createAllocation(FertilizerAllocationCreateRequest request) {
-        // Validate farmer exists
-        User farmer = userRepository.findById(request.getFarmerNic())
-                .orElseThrow(() -> new EntityNotFoundException("Farmer not found"));
+    // Farmer Methods
+    public List<FertilizerAllocationResponse> getFarmerAllocations(String farmerNic) {
+        validateFarmer(farmerNic);
+        return fertilizerAllocationRepository.findByFarmerNicOrderByDistributionDateDesc(farmerNic)
+                .stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
 
-        // Validate land exists and belongs to farmer
-        Land land = landRepository.findById(request.getLandId())
-                .orElseThrow(() -> new EntityNotFoundException("Land not found"));
+    public FertilizerAllocationResponse getAllocationDetails(Long id) {
+        return convertToResponse(findAllocationById(id));
+    }
 
-        if (!land.getFarmerNic().equals(request.getFarmerNic())) {
-            throw new IllegalArgumentException("Land does not belong to farmer");
+    public List<FertilizerAllocationResponse> getFarmerAllocationHistory(
+            String farmerNic,
+            Integer year,
+            FertilizerAllocation.CultivationSeason season) {
+        validateFarmer(farmerNic);
+        return fertilizerAllocationRepository.findByFarmerNicAndYearAndSeason(farmerNic, year, season)
+                .stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
+    public FertilizerAllocationResponse updateCollectionStatus(
+            Long id,
+            FertilizerAllocationStatusUpdateRequest request,
+            String farmerNic) {
+        FertilizerAllocation allocation = findAllocationById(id);
+
+        if (!allocation.getFarmerNic().equals(farmerNic)) {
+            throw new IllegalArgumentException("Not authorized to update this allocation");
         }
 
-        // Create allocation
+        if (allocation.getStatus() != FertilizerAllocation.Status.READY) {
+            throw new IllegalStateException("Allocation is not ready for collection");
+        }
+
+        if (request.getStatus() == FertilizerAllocation.Status.COLLECTED) {
+            allocation.setStatus(FertilizerAllocation.Status.COLLECTED);
+            allocation.setIsCollected(true);
+            allocation.setCollectionDate(LocalDateTime.now());
+
+            notificationService.createFertilizerNotification(
+                    farmerNic,
+                    Notification.NotificationType.FERTILIZER_COLLECTED,
+                    allocation.getAllocatedAmount(),
+                    allocation.getSeason().toString(),
+                    allocation.getYear(),
+                    allocation.getDistributionLocation(),
+                    allocation.getReferenceNumber()
+            );
+        }
+
+        return convertToResponse(fertilizerAllocationRepository.save(allocation));
+    }
+
+    // Admin Methods
+    public Page<FertilizerAllocationResponse> getAllAllocations(Pageable pageable) {
+        return fertilizerAllocationRepository.findAll(pageable)
+                .map(this::convertToResponse);
+    }
+
+    public FertilizerAllocationResponse createAllocation(FertilizerAllocationCreateRequest request) {
+        User farmer = validateFarmer(request.getFarmerNic());
+        Land land = validateLand(request.getLandId(), request.getFarmerNic());
+
+        if (hasActiveAllocation(request.getFarmerNic(), request.getSeason(), request.getYear())) {
+            throw new IllegalStateException("Farmer already has an active allocation for this season");
+        }
+
         FertilizerAllocation allocation = new FertilizerAllocation();
         allocation.setFarmerNic(request.getFarmerNic());
         allocation.setLandId(request.getLandId());
-        allocation.setAllocatedAmount(land.getTotalNpkQuota());
+        allocation.setAllocatedAmount(calculateAllocationAmount(land));
         allocation.setSeason(request.getSeason());
         allocation.setYear(request.getYear());
         allocation.setStatus(FertilizerAllocation.Status.PENDING);
-        allocation.setIsCollected(false);
 
         FertilizerAllocation savedAllocation = fertilizerAllocationRepository.save(allocation);
+
+        notificationService.createFertilizerNotification(
+                farmer.getNic(),
+                Notification.NotificationType.FERTILIZER_ALLOCATED,
+                allocation.getAllocatedAmount(),
+                allocation.getSeason().toString(),
+                allocation.getYear(),
+                null,
+                null
+        );
+
         return convertToResponse(savedAllocation);
     }
 
-    public FertilizerAllocationResponse updateStatus(Long id, FertilizerAllocationStatusUpdateRequest request) {
-        FertilizerAllocation allocation = fertilizerAllocationRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Allocation not found"));
+    public FertilizerAllocationResponse updateAllocation(Long id, FertilizerAllocationCreateRequest request) {
+        FertilizerAllocation allocation = findAllocationById(id);
+        Land land = validateLand(request.getLandId(), request.getFarmerNic());
 
-        allocation.setStatus(request.getStatus());
-
-        if (request.getStatus() == FertilizerAllocation.Status.COLLECTED) {
-            allocation.setIsCollected(true);
-            allocation.setCollectionDate(LocalDateTime.now());
+        if (allocation.getStatus() != FertilizerAllocation.Status.PENDING) {
+            throw new IllegalStateException("Cannot update allocation that is not in PENDING status");
         }
 
-        return convertToResponse(fertilizerAllocationRepository.save(allocation));
-    }
-
-    public FertilizerAllocationResponse setDistributionDetails(Long id, FertilizerDistributionRequest request) {
-        FertilizerAllocation allocation = fertilizerAllocationRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Allocation not found"));
-
-        allocation.setDistributionLocation(request.getDistributionLocation());
-        allocation.setReferenceNumber(request.getReferenceNumber());
-        allocation.setDistributionDate(LocalDateTime.now());
-        allocation.setStatus(FertilizerAllocation.Status.READY);
+        allocation.setLandId(request.getLandId());
+        allocation.setAllocatedAmount(calculateAllocationAmount(land));
+        allocation.setSeason(request.getSeason());
+        allocation.setYear(request.getYear());
 
         return convertToResponse(fertilizerAllocationRepository.save(allocation));
     }
 
-    public List<FertilizerAllocationResponse> getFarmerAllocations(String farmerNic) {
-        return fertilizerAllocationRepository.findByFarmerNic(farmerNic)
+    public List<FertilizerAllocationResponse> getSeasonalAllocations(
+            FertilizerAllocation.CultivationSeason season,
+            Integer year) {
+        return fertilizerAllocationRepository.findBySeasonAndYear(season, year)
                 .stream()
                 .map(this::convertToResponse)
                 .collect(Collectors.toList());
@@ -91,52 +153,111 @@ public class FertilizerAllocationService {
                 .collect(Collectors.toList());
     }
 
+    public FertilizerAllocationResponse setDistributionDetails(Long id, FertilizerDistributionRequest request) {
+        FertilizerAllocation allocation = findAllocationById(id);
+
+        if (allocation.getStatus() != FertilizerAllocation.Status.PENDING) {
+            throw new IllegalStateException("Can only set distribution details for PENDING allocations");
+        }
+
+        allocation.setDistributionLocation(request.getDistributionLocation());
+        allocation.setReferenceNumber(request.getReferenceNumber());
+        allocation.setDistributionDate(LocalDateTime.now());
+        allocation.setStatus(FertilizerAllocation.Status.READY);
+
+        FertilizerAllocation savedAllocation = fertilizerAllocationRepository.save(allocation);
+
+        notificationService.createFertilizerNotification(
+                allocation.getFarmerNic(),
+                Notification.NotificationType.FERTILIZER_READY,
+                allocation.getAllocatedAmount(),
+                allocation.getSeason().toString(),
+                allocation.getYear(),
+                request.getDistributionLocation(),
+                request.getReferenceNumber()
+        );
+
+        return convertToResponse(savedAllocation);
+    }
+
     public FertilizerAllocationStatisticsResponse getStatistics() {
         List<FertilizerAllocation> allocations = fertilizerAllocationRepository.findAll();
 
         FertilizerAllocationStatisticsResponse stats = new FertilizerAllocationStatisticsResponse();
-
-        // Total allocations
         stats.setTotalAllocations((long) allocations.size());
 
-        // Collected vs Pending
         long collectedCount = allocations.stream()
                 .filter(FertilizerAllocation::getIsCollected)
                 .count();
         stats.setCollectedCount(collectedCount);
-        stats.setPendingCount((long) allocations.size() - collectedCount);
+        stats.setPendingCount(stats.getTotalAllocations() - collectedCount);
 
-        // Amount calculations
         double totalAmount = allocations.stream()
-                .mapToDouble(a -> a.getAllocatedAmount() != null ? a.getAllocatedAmount() : 0.0)
+                .mapToDouble(FertilizerAllocation::getAllocatedAmount)
                 .sum();
-        stats.setTotalAmount(totalAmount);
-
         double collectedAmount = allocations.stream()
                 .filter(FertilizerAllocation::getIsCollected)
-                .mapToDouble(a -> a.getAllocatedAmount() != null ? a.getAllocatedAmount() : 0.0)
+                .mapToDouble(FertilizerAllocation::getAllocatedAmount)
                 .sum();
+
+        stats.setTotalAmount(totalAmount);
         stats.setCollectedAmount(collectedAmount);
         stats.setPendingAmount(totalAmount - collectedAmount);
 
-        // Current year statistics
         int currentYear = LocalDateTime.now().getYear();
         List<FertilizerAllocation> currentYearAllocations = allocations.stream()
-                .filter(a -> a.getYear() != null && a.getYear() == currentYear)
+                .filter(a -> a.getYear() == currentYear)
                 .collect(Collectors.toList());
 
         stats.setCurrentYearAllocations((long) currentYearAllocations.size());
         stats.setCurrentYearAmount(currentYearAllocations.stream()
-                .mapToDouble(a -> a.getAllocatedAmount() != null ? a.getAllocatedAmount() : 0.0)
+                .mapToDouble(FertilizerAllocation::getAllocatedAmount)
                 .sum());
 
         return stats;
     }
 
-    private FertilizerAllocationResponse convertToResponse(FertilizerAllocation allocation) {
-        if (allocation == null) {
-            return null;
+    // Helper Methods
+    private FertilizerAllocation findAllocationById(Long id) {
+        return fertilizerAllocationRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Allocation not found"));
+    }
+
+    private User validateFarmer(String farmerNic) {
+        return userRepository.findById(farmerNic)
+                .orElseThrow(() -> new ResourceNotFoundException("Farmer not found"));
+    }
+
+    private Land validateLand(Long landId, String farmerNic) {
+        Land land = landRepository.findById(landId)
+                .orElseThrow(() -> new ResourceNotFoundException("Land not found"));
+
+        if (!land.getFarmerNic().equals(farmerNic)) {
+            throw new IllegalArgumentException("Land does not belong to farmer");
         }
+
+        return land;
+    }
+
+    private boolean hasActiveAllocation(
+            String farmerNic,
+            FertilizerAllocation.CultivationSeason season,
+            Integer year) {
+        return fertilizerAllocationRepository
+                .existsByFarmerNicAndSeasonAndYearAndStatusNot(
+                        farmerNic,
+                        season,
+                        year,
+                        FertilizerAllocation.Status.COLLECTED
+                );
+    }
+
+    private Float calculateAllocationAmount(Land land) {
+        return land.getSize() * 50.0f; // 50kg per hectare
+    }
+
+    private FertilizerAllocationResponse convertToResponse(FertilizerAllocation allocation) {
+        if (allocation == null) return null;
 
         FertilizerAllocationResponse response = new FertilizerAllocationResponse();
         response.setId(allocation.getId());
@@ -152,20 +273,15 @@ public class FertilizerAllocationService {
         response.setCollectionDate(allocation.getCollectionDate());
         response.setStatus(allocation.getStatus());
 
-        // Get additional details from related entities
         try {
-            // Get farmer name
-            userRepository.findById(allocation.getFarmerNic()).ifPresent(farmer ->
-                    response.setFarmerName(farmer.getFullName())
-            );
+            userRepository.findById(allocation.getFarmerNic())
+                    .ifPresent(farmer -> response.setFarmerName(farmer.getFullName()));
 
-            // Get land details
             landRepository.findById(allocation.getLandId()).ifPresent(land -> {
                 response.setLandLocation(land.getLocation());
                 response.setLandSize(land.getSize());
             });
         } catch (Exception e) {
-            // Log error but don't fail the response
             System.err.println("Error fetching related entities: " + e.getMessage());
         }
 

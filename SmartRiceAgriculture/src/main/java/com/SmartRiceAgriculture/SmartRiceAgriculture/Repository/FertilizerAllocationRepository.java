@@ -4,31 +4,38 @@ import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.FertilizerAllocation
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
+
 import java.util.List;
-import java.time.LocalDateTime;
 
 @Repository
 public interface FertilizerAllocationRepository extends JpaRepository<FertilizerAllocation, Long> {
-    List<FertilizerAllocation> findByFarmerNic(String farmerNic);
 
-    List<FertilizerAllocation> findByLandId(Long landId);
+    // Find by farmer NIC ordered by distribution date
+    List<FertilizerAllocation> findByFarmerNicOrderByDistributionDateDesc(String farmerNic);
 
-    List<FertilizerAllocation> findByStatus(FertilizerAllocation.Status status);
-
+    // Find by season and year
     List<FertilizerAllocation> findBySeasonAndYear(
             FertilizerAllocation.CultivationSeason season,
             Integer year
     );
 
-    List<FertilizerAllocation> findByFarmerNicAndSeasonAndYear(
+    // Find by farmer NIC, year and season
+    List<FertilizerAllocation> findByFarmerNicAndYearAndSeason(
             String farmerNic,
-            FertilizerAllocation.CultivationSeason season,
-            Integer year
+            Integer year,
+            FertilizerAllocation.CultivationSeason season
     );
 
-    @Query("SELECT fa FROM FertilizerAllocation fa WHERE fa.farmerNic = ?1 AND fa.isCollected = ?2")
-    List<FertilizerAllocation> findByFarmerNicAndCollectionStatus(String farmerNic, Boolean isCollected);
+    // Find by status
+    List<FertilizerAllocation> findByStatus(FertilizerAllocation.Status status);
 
-    @Query("SELECT COUNT(fa) > 0 FROM FertilizerAllocation fa WHERE fa.farmerNic = ?1 AND fa.season = ?2 AND fa.year = ?3")
-    boolean hasAllocationForSeason(String farmerNic, FertilizerAllocation.CultivationSeason season, Integer year);
+    // Check for existing active allocation
+    @Query("SELECT CASE WHEN COUNT(fa) > 0 THEN true ELSE false END FROM FertilizerAllocation fa " +
+            "WHERE fa.farmerNic = ?1 AND fa.season = ?2 AND fa.year = ?3 AND fa.status != ?4")
+    boolean existsByFarmerNicAndSeasonAndYearAndStatusNot(
+            String farmerNic,
+            FertilizerAllocation.CultivationSeason season,
+            Integer year,
+            FertilizerAllocation.Status status
+    );
 }

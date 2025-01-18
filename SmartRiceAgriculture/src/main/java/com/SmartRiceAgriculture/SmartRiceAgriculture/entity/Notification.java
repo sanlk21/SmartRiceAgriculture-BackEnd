@@ -47,15 +47,22 @@ public class Notification {
     }
 
     public enum NotificationType {
-        BID_PLACED,           // New bid on farmer's listing
-        BID_ACCEPTED,         // Buyer's bid was accepted
-        BID_REJECTED,         // Buyer's bid was rejected
-        BID_EXPIRED,          // Bid listing expired
-        ORDER_CREATED,        // New order created
-        ORDER_STATUS_CHANGE,  // Order status updated
-        PAYMENT_RECEIVED,     // Payment received by farmer
-        PAYMENT_REMINDER,     // Payment deadline reminder
-        ADMIN_BROADCAST      // System-wide announcement
+        // Existing types
+        BID_PLACED,
+        BID_ACCEPTED,
+        BID_REJECTED,
+        BID_EXPIRED,
+        ORDER_CREATED,
+        ORDER_STATUS_CHANGE,
+        PAYMENT_RECEIVED,
+        PAYMENT_REMINDER,
+        ADMIN_BROADCAST,
+
+        // New fertilizer-related types
+        FERTILIZER_ALLOCATED,
+        FERTILIZER_READY,
+        FERTILIZER_COLLECTED,
+        FERTILIZER_EXPIRED
     }
 
     public enum Priority {

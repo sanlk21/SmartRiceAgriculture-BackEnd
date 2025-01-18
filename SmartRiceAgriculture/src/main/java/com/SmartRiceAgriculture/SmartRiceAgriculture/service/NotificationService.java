@@ -41,14 +41,12 @@ public class NotificationService {
 
     // Get user's notifications (individual + broadcasts)
     public List<Notification> getUserNotifications(String userNic) {
-        return notificationRepository.findByRecipientNicOrRecipientNicIsNullOrderByCreatedDateDesc(
-                userNic);
+        return notificationRepository.findByRecipientNicOrRecipientNicIsNullOrderByCreatedDateDesc(userNic);
     }
 
     // Get all broadcasts
     public List<Notification> getAllBroadcasts() {
-        return notificationRepository.findByType(
-                Notification.NotificationType.ADMIN_BROADCAST);
+        return notificationRepository.findByType(Notification.NotificationType.ADMIN_BROADCAST);
     }
 
     // Delete a specific notification
@@ -101,14 +99,55 @@ public class NotificationService {
         };
 
         String description = switch (type) {
-            case PAYMENT_RECEIVED ->
-                    "Payment of Rs. " + amount + " received for order " + orderNumber;
-            case PAYMENT_REMINDER ->
-                    "Payment deadline approaching for order " + orderNumber;
+            case PAYMENT_RECEIVED -> "Payment of Rs. " + amount + " received for order " + orderNumber;
+            case PAYMENT_REMINDER -> "Payment deadline approaching for order " + orderNumber;
             default -> "Payment status updated for order " + orderNumber;
         };
 
         createNotification(title, description, recipientNic, type, null, orderId);
+    }
+
+    // Create fertilizer-related notifications
+    public void createFertilizerNotification(String recipientNic, Notification.NotificationType type,
+                                             Float amount, String season, Integer year, String location,
+                                             String referenceNumber) {
+        String title = switch (type) {
+            case FERTILIZER_ALLOCATED -> "New Fertilizer Allocation";
+            case FERTILIZER_READY -> "Fertilizer Ready for Collection";
+            case FERTILIZER_COLLECTED -> "Fertilizer Collection Confirmed";
+            case FERTILIZER_EXPIRED -> "Fertilizer Allocation Expired";
+            default -> "Fertilizer Update";
+        };
+
+        String description = switch (type) {
+            case FERTILIZER_ALLOCATED -> String.format(
+                    "You have been allocated %.2fkg of fertilizer for %s season %d",
+                    amount, season, year);
+            case FERTILIZER_READY -> String.format(
+                    "Your fertilizer allocation (%.2fkg) is ready for collection at %s. Reference Number: %s",
+                    amount, location, referenceNumber);
+            case FERTILIZER_COLLECTED -> String.format(
+                    "Confirmed collection of %.2fkg fertilizer. Reference Number: %s",
+                    amount, referenceNumber);
+            case FERTILIZER_EXPIRED -> String.format(
+                    "Your fertilizer allocation of %.2fkg for %s season %d has expired",
+                    amount, season, year);
+            default -> "Your fertilizer allocation status has been updated.";
+        };
+
+        createNotification(title, description, recipientNic, type, null, null);
+    }
+
+    // Create fertilizer admin broadcast
+    public void createFertilizerBroadcast(String farmerNic, Float amount,
+                                          String action, String referenceNumber) {
+        String title = "Fertilizer Allocation Update";
+        String description = String.format(
+                "Farmer %s has %s %.2fkg of fertilizer. Reference Number: %s",
+                farmerNic, action, amount, referenceNumber
+        );
+
+        createBroadcast(title, description);
     }
 
     // Scheduled task to delete old notifications (runs daily at midnight)
