@@ -14,7 +14,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -22,6 +24,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional
 public class FertilizerAllocationService {
+
     private final FertilizerAllocationRepository fertilizerAllocationRepository;
     private final LandRepository landRepository;
     private final UserRepository userRepository;
@@ -40,10 +43,7 @@ public class FertilizerAllocationService {
         return convertToResponse(findAllocationById(id));
     }
 
-    public List<FertilizerAllocationResponse> getFarmerAllocationHistory(
-            String farmerNic,
-            Integer year,
-            FertilizerAllocation.CultivationSeason season) {
+    public List<FertilizerAllocationResponse> getFarmerAllocationHistory(String farmerNic, Integer year, FertilizerAllocation.CultivationSeason season) {
         validateFarmer(farmerNic);
         return fertilizerAllocationRepository.findByFarmerNicAndYearAndSeason(farmerNic, year, season)
                 .stream()
@@ -51,10 +51,7 @@ public class FertilizerAllocationService {
                 .collect(Collectors.toList());
     }
 
-    public FertilizerAllocationResponse updateCollectionStatus(
-            Long id,
-            FertilizerAllocationStatusUpdateRequest request,
-            String farmerNic) {
+    public FertilizerAllocationResponse updateCollectionStatus(Long id, FertilizerAllocationStatusUpdateRequest request, String farmerNic) {
         FertilizerAllocation allocation = findAllocationById(id);
 
         if (!allocation.getFarmerNic().equals(farmerNic)) {
@@ -100,7 +97,7 @@ public class FertilizerAllocationService {
 
         FertilizerAllocation allocation = new FertilizerAllocation();
         allocation.setFarmerNic(request.getFarmerNic());
-        allocation.setLandId(request.getLandId());
+        allocation.setLand(land); // Set the Land object
         allocation.setAllocatedAmount(calculateAllocationAmount(land));
         allocation.setSeason(request.getSeason());
         allocation.setYear(request.getYear());
@@ -129,7 +126,7 @@ public class FertilizerAllocationService {
             throw new IllegalStateException("Cannot update allocation that is not in PENDING status");
         }
 
-        allocation.setLandId(request.getLandId());
+        allocation.setLand(land); // Set the Land object
         allocation.setAllocatedAmount(calculateAllocationAmount(land));
         allocation.setSeason(request.getSeason());
         allocation.setYear(request.getYear());
@@ -137,9 +134,7 @@ public class FertilizerAllocationService {
         return convertToResponse(fertilizerAllocationRepository.save(allocation));
     }
 
-    public List<FertilizerAllocationResponse> getSeasonalAllocations(
-            FertilizerAllocation.CultivationSeason season,
-            Integer year) {
+    public List<FertilizerAllocationResponse> getSeasonalAllocations(FertilizerAllocation.CultivationSeason season, Integer year) {
         return fertilizerAllocationRepository.findBySeasonAndYear(season, year)
                 .stream()
                 .map(this::convertToResponse)
@@ -205,9 +200,13 @@ public class FertilizerAllocationService {
         stats.setPendingAmount(totalAmount - collectedAmount);
 
         int currentYear = LocalDateTime.now().getYear();
-        List<FertilizerAllocation> currentYearAllocations = allocations.stream()
-                .filter(a -> a.getYear() == currentYear)
-                .collect(Collectors.toList());
+        List<FertilizerAllocation> currentYearAllocations = new ArrayList<>();
+        for (FertilizerAllocation allocation : allocations) {
+            if (allocation.getYear() == currentYear) {
+                currentYearAllocations.add(allocation);
+            }
+        }
+
 
         stats.setCurrentYearAllocations((long) currentYearAllocations.size());
         stats.setCurrentYearAmount(currentYearAllocations.stream()
@@ -239,17 +238,10 @@ public class FertilizerAllocationService {
         return land;
     }
 
-    private boolean hasActiveAllocation(
-            String farmerNic,
-            FertilizerAllocation.CultivationSeason season,
-            Integer year) {
-        return fertilizerAllocationRepository
-                .existsByFarmerNicAndSeasonAndYearAndStatusNot(
-                        farmerNic,
-                        season,
-                        year,
-                        FertilizerAllocation.Status.COLLECTED
-                );
+    private boolean hasActiveAllocation(String farmerNic, FertilizerAllocation.CultivationSeason season, Integer year) {
+        return fertilizerAllocationRepository.existsByFarmerNicAndSeasonAndYearAndStatusNot(
+                farmerNic, season, year, FertilizerAllocation.Status.COLLECTED
+        );
     }
 
     private Float calculateAllocationAmount(Land land) {
@@ -262,7 +254,7 @@ public class FertilizerAllocationService {
         FertilizerAllocationResponse response = new FertilizerAllocationResponse();
         response.setId(allocation.getId());
         response.setFarmerNic(allocation.getFarmerNic());
-        response.setLandId(allocation.getLandId());
+        response.setLandId(allocation.getLand().getId()); // Access Land ID
         response.setAllocatedAmount(allocation.getAllocatedAmount());
         response.setSeason(allocation.getSeason());
         response.setYear(allocation.getYear());
@@ -277,10 +269,8 @@ public class FertilizerAllocationService {
             userRepository.findById(allocation.getFarmerNic())
                     .ifPresent(farmer -> response.setFarmerName(farmer.getFullName()));
 
-            landRepository.findById(allocation.getLandId()).ifPresent(land -> {
-                response.setLandLocation(land.getLocation());
-                response.setLandSize(land.getSize());
-            });
+            response.setLandLocation(allocation.getLand().getLocation()); // Access Land Location
+            response.setLandSize(allocation.getLand().getSize()); // Access Land Size
         } catch (Exception e) {
             System.err.println("Error fetching related entities: " + e.getMessage());
         }

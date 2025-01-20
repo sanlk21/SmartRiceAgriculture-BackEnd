@@ -1,10 +1,12 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.controller;
 
-
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.LandRequestDTO;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.LandResponseDTO;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.enums.LandStatus;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.service.LandService;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -26,8 +28,8 @@ public class LandController {
     @PutMapping("/{id}/status")
     public ResponseEntity<LandResponseDTO> updateStatus(
             @PathVariable Long id,
-            @RequestParam LandStatus status) {
-        return ResponseEntity.ok(landService.updateLandStatus(id, status));
+            @RequestBody StatusUpdateRequest status) {
+        return ResponseEntity.ok(landService.updateLandStatus(id, status.getStatus()));
     }
 
     @GetMapping("/{id}")
@@ -48,5 +50,12 @@ public class LandController {
     @GetMapping
     public ResponseEntity<List<LandResponseDTO>> getAllLands() {
         return ResponseEntity.ok(landService.getAllLands());
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StatusUpdateRequest {
+        private LandStatus status;
     }
 }

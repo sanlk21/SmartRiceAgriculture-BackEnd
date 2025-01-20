@@ -19,8 +19,9 @@ public class FertilizerAllocation {
     @Column(nullable = false)
     private String farmerNic;
 
-    @Column(nullable = false)
-    private Long landId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "land_id", nullable = false)
+    private Land land; // Establish relationship to Land entity
 
     @Column(nullable = false)
     private Float allocatedAmount;  // in kg
@@ -59,3 +60,4 @@ public class FertilizerAllocation {
         EXPIRED         // Farmer didn't collect within timeframe
     }
 }
+

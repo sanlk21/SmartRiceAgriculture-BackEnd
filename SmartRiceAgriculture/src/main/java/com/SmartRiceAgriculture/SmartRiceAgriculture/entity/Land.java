@@ -6,6 +6,9 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Entity
 @Table(name = "lands")
 @Data
@@ -35,13 +38,16 @@ public class Land {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private LandStatus status = LandStatus.PENDING; // Only set initial status to PENDING
+    private LandStatus status = LandStatus.PENDING; // Initial status is PENDING
 
-    // Fertilizer quotas will be automatically calculated
+    // Fertilizer quotas
     private Float nitrogenQuota;
     private Float phosphorusQuota;
     private Float potassiumQuota;
     private Float totalNpkQuota;
+
+    @OneToMany(mappedBy = "land", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<FertilizerAllocation> fertilizerAllocations = new ArrayList<>();
 
     @PrePersist
     @PreUpdate
