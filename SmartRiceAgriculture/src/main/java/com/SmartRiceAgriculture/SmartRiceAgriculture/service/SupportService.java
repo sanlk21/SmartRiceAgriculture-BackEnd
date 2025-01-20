@@ -2,11 +2,9 @@ package com.SmartRiceAgriculture.SmartRiceAgriculture.service;
 
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Support;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.SupportRepository;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.security.core.context.SecurityContextHolder;
-import jakarta.persistence.EntityNotFoundException;
-
 import java.util.List;
 
 @Service
@@ -14,77 +12,58 @@ import java.util.List;
 public class SupportService {
     private final SupportRepository supportRepository;
 
-    // Create a new support ticket
-    public Support createTicket(String subject, String question) {
-        String userNic = SecurityContextHolder.getContext().getAuthentication().getName();
-
+    public Support createTicket(String subject, String question, String userNic) {
         Support ticket = new Support();
         ticket.setUserNic(userNic);
         ticket.setSubject(subject);
         ticket.setQuestion(question);
         ticket.setStatus(Support.TicketStatus.OPEN);
-
         return supportRepository.save(ticket);
     }
 
-    // Admin: Answer a ticket
-    public Support answerTicket(Long ticketId, String answer) {
-        String adminNic = SecurityContextHolder.getContext().getAuthentication().getName();
-
+    public Support answerTicket(Long ticketId, String answer, String adminNic) {
         Support ticket = supportRepository.findById(ticketId)
-                .orElseThrow(() -> new EntityNotFoundException("Support ticket not found"));
+                .orElseThrow(() -> new EntityNotFoundException("Ticket not found with id: " + ticketId));
 
         ticket.setAnswer(answer);
         ticket.setAdminNic(adminNic);
         ticket.setStatus(Support.TicketStatus.ANSWERED);
-
         return supportRepository.save(ticket);
     }
 
-    // Close a ticket
     public Support closeTicket(Long ticketId) {
         Support ticket = supportRepository.findById(ticketId)
-                .orElseThrow(() -> new EntityNotFoundException("Support ticket not found"));
+                .orElseThrow(() -> new EntityNotFoundException("Ticket not found with id: " + ticketId));
 
         ticket.setStatus(Support.TicketStatus.CLOSED);
         return supportRepository.save(ticket);
     }
 
-    // Delete a ticket (admin or ticket creator only)
-    public void deleteTicket(Long ticketId) {
-        String currentUserNic = SecurityContextHolder.getContext().getAuthentication().getName();
+    public void deleteTicket(Long ticketId, String userNic) {
         Support ticket = supportRepository.findById(ticketId)
-                .orElseThrow(() -> new EntityNotFoundException("Support ticket not found"));
+                .orElseThrow(() -> new EntityNotFoundException("Ticket not found with id: " + ticketId));
 
-        // Check if user is admin or ticket creator
-        if (ticket.getUserNic().equals(currentUserNic) ||
-                SecurityContextHolder.getContext().getAuthentication()
-                        .getAuthorities().stream()
-                        .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) {
+        if (ticket.getUserNic().equals(userNic) || userNic.startsWith("ADMIN")) {
             supportRepository.deleteById(ticketId);
         } else {
             throw new IllegalStateException("Not authorized to delete this ticket");
         }
     }
 
-    // Get user's tickets
     public List<Support> getUserTickets(String userNic) {
-        return supportRepository.findByUserNic(userNic);
+        return supportRepository.findByUserNicOrderByCreatedAtDesc(userNic);
     }
 
-    // Get all open tickets (admin)
     public List<Support> getOpenTickets() {
         return supportRepository.findByStatus(Support.TicketStatus.OPEN);
     }
 
-    // Get all tickets (admin)
     public List<Support> getAllTickets() {
-        return supportRepository.findAll();
+        return supportRepository.findAllByOrderByCreatedAtDesc();
     }
 
-    // Get ticket by ID
     public Support getTicketById(Long ticketId) {
         return supportRepository.findById(ticketId)
-                .orElseThrow(() -> new EntityNotFoundException("Support ticket not found"));
+                .orElseThrow(() -> new EntityNotFoundException("Ticket not found with id: " + ticketId));
     }
 }

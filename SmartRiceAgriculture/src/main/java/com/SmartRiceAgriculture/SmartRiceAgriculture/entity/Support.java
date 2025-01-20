@@ -4,56 +4,49 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "support_tickets")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@Table(name = "support")
 public class Support {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false)
-    private String userNic;  // NIC of the user who created the ticket
+    private String userNic;
 
-    @Column(nullable = false, length = 200)
+    private String adminNic;
+
+    @Column(nullable = false)
     private String subject;
 
-    @Column(nullable = false, length = 1000)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String question;
 
-    @Column(length = 1000)
+    @Column(columnDefinition = "TEXT")
     private String answer;
 
-    private String adminNic;  // NIC of the admin who answered
-
-    @Column(nullable = false)
-    private LocalDateTime createdAt;
-
-    private LocalDateTime answeredAt;
-
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
     private TicketStatus status = TicketStatus.OPEN;
 
-    public enum TicketStatus {
-        OPEN,       // New ticket, waiting for admin response
-        ANSWERED,   // Admin has provided an answer
-        CLOSED     // Ticket is closed/resolved
-    }
+    @CreationTimestamp
+    private LocalDateTime createdAt;
 
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
+    private LocalDateTime updatedAt;
 
     @PreUpdate
     protected void onUpdate() {
-        if (status == TicketStatus.ANSWERED && answeredAt == null) {
-            answeredAt = LocalDateTime.now();
-        }
+        updatedAt = LocalDateTime.now();
+    }
+
+    public enum TicketStatus {
+        OPEN,
+        ANSWERED,
+        CLOSED
     }
 }

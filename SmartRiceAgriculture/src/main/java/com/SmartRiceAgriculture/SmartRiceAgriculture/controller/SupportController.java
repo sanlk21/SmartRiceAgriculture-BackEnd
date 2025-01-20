@@ -3,89 +3,127 @@ package com.SmartRiceAgriculture.SmartRiceAgriculture.controller;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.SupportDTO;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Support;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.service.SupportService;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/support")
 @RequiredArgsConstructor
+@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
 public class SupportController {
-
     private final SupportService supportService;
 
-    // Create new support ticket
     @PostMapping
-    public ResponseEntity<SupportDTO.Response> createTicket(@RequestBody SupportDTO.Request request) {
-        Support ticket = supportService.createTicket(request.getSubject(), request.getQuestion());
-        return ResponseEntity.ok(new SupportDTO.Response(ticket));
+    public ResponseEntity<?> createTicket(
+            @RequestBody SupportDTO.Request request,
+            @RequestParam String userNic) {
+        try {
+            Support ticket = supportService.createTicket(
+                    request.getSubject(),
+                    request.getQuestion(),
+                    userNic
+            );
+            return ResponseEntity.ok(new SupportDTO.Response(ticket));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
-    // Answer a ticket (admin only)
     @PostMapping("/{ticketId}/answer")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<SupportDTO.Response> answerTicket(
+    public ResponseEntity<?> answerTicket(
             @PathVariable Long ticketId,
-            @RequestBody SupportDTO.AnswerRequest request) {
-        Support ticket = supportService.answerTicket(ticketId, request.getAnswer());
-        return ResponseEntity.ok(new SupportDTO.Response(ticket));
+            @RequestBody SupportDTO.AnswerRequest request,
+            @RequestParam String adminNic) {
+        try {
+            Support ticket = supportService.answerTicket(ticketId, request.getAnswer(), adminNic);
+            return ResponseEntity.ok(new SupportDTO.Response(ticket));
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
-    // Close a ticket
     @PutMapping("/{ticketId}/close")
-    public ResponseEntity<SupportDTO.Response> closeTicket(@PathVariable Long ticketId) {
-        Support ticket = supportService.closeTicket(ticketId);
-        return ResponseEntity.ok(new SupportDTO.Response(ticket));
+    public ResponseEntity<?> closeTicket(@PathVariable Long ticketId) {
+        try {
+            Support ticket = supportService.closeTicket(ticketId);
+            return ResponseEntity.ok(new SupportDTO.Response(ticket));
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
-    // Delete a ticket
     @DeleteMapping("/{ticketId}")
-    public ResponseEntity<Void> deleteTicket(@PathVariable Long ticketId) {
-        supportService.deleteTicket(ticketId);
-        return ResponseEntity.ok().build();
+    public ResponseEntity<?> deleteTicket(
+            @PathVariable Long ticketId,
+            @RequestParam String userNic) {
+        try {
+            supportService.deleteTicket(ticketId, userNic);
+            return ResponseEntity.ok().build();
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
-    // Get user's tickets
     @GetMapping("/my-tickets")
-    public ResponseEntity<List<SupportDTO.Response>> getMyTickets(Authentication authentication) {
-        List<Support> tickets = supportService.getUserTickets(authentication.getName());
-        List<SupportDTO.Response> response = tickets.stream()
-                .map(SupportDTO.Response::new)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(response);
+    public ResponseEntity<?> getMyTickets(@RequestParam String userNic) {
+        try {
+            List<Support> tickets = supportService.getUserTickets(userNic);
+            List<SupportDTO.Response> response = tickets.stream()
+                    .map(SupportDTO.Response::new)
+                    .collect(Collectors.toList());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
-    // Get all open tickets (admin only)
     @GetMapping("/open")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<SupportDTO.Response>> getOpenTickets() {
-        List<Support> tickets = supportService.getOpenTickets();
-        List<SupportDTO.Response> response = tickets.stream()
-                .map(SupportDTO.Response::new)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(response);
+    public ResponseEntity<?> getOpenTickets() {
+        try {
+            List<Support> tickets = supportService.getOpenTickets();
+            List<SupportDTO.Response> response = tickets.stream()
+                    .map(SupportDTO.Response::new)
+                    .collect(Collectors.toList());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
-    // Get all tickets (admin only)
     @GetMapping("/all")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<SupportDTO.Response>> getAllTickets() {
-        List<Support> tickets = supportService.getAllTickets();
-        List<SupportDTO.Response> response = tickets.stream()
-                .map(SupportDTO.Response::new)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(response);
+    public ResponseEntity<?> getAllTickets() {
+        try {
+            List<Support> tickets = supportService.getAllTickets();
+            List<SupportDTO.Response> response = tickets.stream()
+                    .map(SupportDTO.Response::new)
+                    .collect(Collectors.toList());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
-    // Get ticket by ID
     @GetMapping("/{ticketId}")
-    public ResponseEntity<SupportDTO.Response> getTicket(@PathVariable Long ticketId) {
-        Support ticket = supportService.getTicketById(ticketId);
-        return ResponseEntity.ok(new SupportDTO.Response(ticket));
+    public ResponseEntity<?> getTicket(@PathVariable Long ticketId) {
+        try {
+            Support ticket = supportService.getTicketById(ticketId);
+            return ResponseEntity.ok(new SupportDTO.Response(ticket));
+        } catch (EntityNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 }
