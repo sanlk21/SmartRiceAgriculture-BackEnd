@@ -92,6 +92,16 @@ public class FertilizerAllocationController {
         return ResponseEntity.ok(allocation);
     }
 
+    // Update Allocation Status
+    @PutMapping("/admin/allocations/{id}/status")
+    public ResponseEntity<FertilizerAllocationResponse> updateAllocationStatus(
+            @PathVariable Long id,
+            @RequestBody FertilizerAllocationStatusUpdateRequest request) {
+        logger.info("Updating status for Allocation ID: {} to Status: {}", id, request.getStatus());
+        FertilizerAllocationResponse allocation = fertilizerService.updateAllocationStatus(id, request);
+        return ResponseEntity.ok(allocation);
+    }
+
     // Get Allocation Statistics
     @GetMapping("/admin/statistics")
     public ResponseEntity<FertilizerAllocationStatisticsResponse> getStatistics() {

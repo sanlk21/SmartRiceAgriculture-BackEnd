@@ -122,16 +122,40 @@ public class FertilizerAllocationService {
         FertilizerAllocation allocation = findAllocationById(id);
         Land land = validateLand(request.getLandId(), request.getFarmerNic());
 
+        // Check if the allocation can be updated
         if (allocation.getStatus() != FertilizerAllocation.Status.PENDING) {
             throw new IllegalStateException("Cannot update allocation that is not in PENDING status");
         }
 
-        allocation.setLand(land); // Set the Land object
+        // Update allocation details
+        allocation.setLand(land);
         allocation.setAllocatedAmount(calculateAllocationAmount(land));
         allocation.setSeason(request.getSeason());
         allocation.setYear(request.getYear());
+        allocation.setStatus(request.getStatus());
 
-        return convertToResponse(fertilizerAllocationRepository.save(allocation));
+        // Save the updated allocation
+        FertilizerAllocation updatedAllocation = fertilizerAllocationRepository.save(allocation);
+
+        return convertToResponse(updatedAllocation);
+    }
+
+    public FertilizerAllocationResponse updateAllocationStatus(Long id, FertilizerAllocationStatusUpdateRequest request) {
+        FertilizerAllocation allocation = findAllocationById(id);
+
+        if (request.getStatus() == null) {
+            throw new IllegalArgumentException("Status cannot be null");
+        }
+
+        allocation.setStatus(request.getStatus());
+
+        if (request.getStatus() == FertilizerAllocation.Status.COLLECTED) {
+            allocation.setIsCollected(true);
+            allocation.setCollectionDate(LocalDateTime.now());
+        }
+
+        FertilizerAllocation updatedAllocation = fertilizerAllocationRepository.save(allocation);
+        return convertToResponse(updatedAllocation);
     }
 
     public List<FertilizerAllocationResponse> getSeasonalAllocations(FertilizerAllocation.CultivationSeason season, Integer year) {
@@ -206,7 +230,6 @@ public class FertilizerAllocationService {
                 currentYearAllocations.add(allocation);
             }
         }
-
 
         stats.setCurrentYearAllocations((long) currentYearAllocations.size());
         stats.setCurrentYearAmount(currentYearAllocations.stream()
