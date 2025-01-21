@@ -38,4 +38,7 @@ public interface FertilizerAllocationRepository extends JpaRepository<Fertilizer
             Integer year,
             FertilizerAllocation.Status status
     );
+
+    // Check if allocation exists for a specific land
+    boolean existsByLandId(Long landId);
 }

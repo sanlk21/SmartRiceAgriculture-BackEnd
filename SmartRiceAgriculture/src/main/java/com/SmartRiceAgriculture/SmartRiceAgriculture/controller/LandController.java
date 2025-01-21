@@ -29,7 +29,8 @@ public class LandController {
     public ResponseEntity<LandResponseDTO> updateStatus(
             @PathVariable Long id,
             @RequestBody StatusUpdateRequest status) {
-        return ResponseEntity.ok(landService.updateLandStatus(id, status.getStatus()));
+        LandResponseDTO response = landService.updateLandStatus(id, status.getStatus());
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{id}")

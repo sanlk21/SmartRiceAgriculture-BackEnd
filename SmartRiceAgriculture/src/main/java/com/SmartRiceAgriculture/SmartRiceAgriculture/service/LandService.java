@@ -2,12 +2,14 @@ package com.SmartRiceAgriculture.SmartRiceAgriculture.service;
 
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.LandRequestDTO;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.LandResponseDTO;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.FertilizerAllocation;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Land;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.enums.LandStatus;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.exception.DocumentStorageException;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.exception.LandNotFoundException;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.mapper.LandConverter;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.LandRepository;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.FertilizerAllocationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -21,6 +23,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
+import java.time.Month;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -30,6 +34,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class LandService {
     private final LandRepository landRepository;
+    private final FertilizerAllocationRepository fertilizerAllocationRepository;
     private final LandConverter landConverter;
     private static final String UPLOAD_DIR = "uploads/documents";
 
@@ -61,9 +66,45 @@ public class LandService {
         log.info("Updating land status for ID: {} to status: {}", id, status);
         Land land = getLandById(id);
         land.setStatus(status);
+
+        // Automatically create fertilizer allocation if the land is approved
+        if (status == LandStatus.APPROVED) {
+            createFertilizerAllocation(land);
+        }
+
         Land updatedLand = landRepository.save(land);
         log.info("Successfully updated land status for ID: {}", id);
         return landConverter.toDTO(updatedLand);
+    }
+
+    private void createFertilizerAllocation(Land land) {
+        log.info("Creating fertilizer allocation for land ID: {}", land.getId());
+
+        // Check if allocation already exists for this land
+        if (!fertilizerAllocationRepository.existsByLandId(land.getId())) {
+            FertilizerAllocation allocation = new FertilizerAllocation();
+            allocation.setFarmerNic(land.getFarmerNic());
+            allocation.setLand(land);
+            allocation.setAllocatedAmount(land.getSize() * 150.0f); // Example: 150 kg/ha
+            allocation.setSeason(determineCurrentSeason());
+            allocation.setYear(LocalDate.now().getYear());
+            allocation.setStatus(FertilizerAllocation.Status.PENDING);
+            allocation.setIsCollected(false);
+
+            fertilizerAllocationRepository.save(allocation);
+            log.info("Fertilizer allocation created successfully for land ID: {}", land.getId());
+        } else {
+            log.warn("Fertilizer allocation already exists for land ID: {}", land.getId());
+        }
+    }
+
+    private FertilizerAllocation.CultivationSeason determineCurrentSeason() {
+        Month currentMonth = LocalDate.now().getMonth();
+        if (currentMonth.getValue() >= 10 || currentMonth.getValue() <= 3) {
+            return FertilizerAllocation.CultivationSeason.MAHA; // October to March
+        } else {
+            return FertilizerAllocation.CultivationSeason.YALA; // April to September
+        }
     }
 
     @Transactional(readOnly = true)
