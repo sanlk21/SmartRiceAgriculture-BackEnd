@@ -3,6 +3,7 @@ package com.SmartRiceAgriculture.SmartRiceAgriculture.controller;
 
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.OrderPaymentRequest;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.OrderResponse;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Order;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.service.OrderService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -19,7 +20,6 @@ import java.util.Map;
 @RequestMapping("/api/orders")
 @RequiredArgsConstructor
 public class OrderController {
-
     private static final Logger logger = LoggerFactory.getLogger(OrderController.class);
     private final OrderService orderService;
 
@@ -63,7 +63,12 @@ public class OrderController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<OrderResponse>> getAllOrders() {
         logger.info("Fetching all orders");
-        return ResponseEntity.ok(orderService.getAllOrders());
+        List<OrderResponse> orders = orderService.getAllOrders();
+        if (orders.isEmpty()) {
+            logger.warn("No orders found");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(orders);
+        }
+        return ResponseEntity.ok(orders);
     }
 
     @GetMapping("/admin/statistics")
@@ -71,5 +76,21 @@ public class OrderController {
     public ResponseEntity<Map<String, Object>> getOrderStatistics() {
         logger.info("Fetching order statistics");
         return ResponseEntity.ok(orderService.getOrderStatistics());
+    }
+
+    @PutMapping("/admin/{orderId}/status")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<OrderResponse> updateOrderStatus(
+            @PathVariable Long orderId,
+            @RequestParam Order.OrderStatus status) {
+        logger.info("Admin updating order status: {} to {}", orderId, status);
+        return ResponseEntity.ok(orderService.updateOrderStatus(orderId, status));
+    }
+
+    @PutMapping("/admin/{orderId}/cancel")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<OrderResponse> cancelOrder(@PathVariable Long orderId) {
+        logger.info("Admin cancelling order: {}", orderId);
+        return ResponseEntity.ok(orderService.updateOrderStatus(orderId, Order.OrderStatus.CANCELLED));
     }
 }
