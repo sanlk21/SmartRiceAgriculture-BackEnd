@@ -1,5 +1,10 @@
 tensorflow==2.9.1
-numpy==1.21.5
+numpy==1.22.4
+scipy==1.11.1
+flatbuffers==1.12
+keras==2.9.0
+protobuf==3.19.6
+tensorboard==2.9.1
 scikit-learn==1.0.2
 joblib==1.1.0
-python-json-logger==2.0.7
+tensorflow-estimator==2.9.0
