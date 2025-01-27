@@ -1,10 +1,7 @@
+numpy==1.21.5
 tensorflow==2.9.1
-numpy==1.22.4
-scipy==1.11.1
-flatbuffers==1.12
-keras==2.9.0
-protobuf==3.19.6
-tensorboard==2.9.1
 scikit-learn==1.0.2
+pandas==1.4.4
 joblib==1.1.0
-tensorflow-estimator==2.9.0
+matplotlib==3.5.2
+python-dotenv==0.20.0
