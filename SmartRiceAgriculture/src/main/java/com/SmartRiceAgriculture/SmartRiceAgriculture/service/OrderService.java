@@ -2,15 +2,23 @@ package com.SmartRiceAgriculture.SmartRiceAgriculture.service;
 
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.OrderPaymentRequest;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.OrderResponse;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Bid;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Order;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.User;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Notification;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Payment;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.BidRepository;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.OrderRepository;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
 import jakarta.persistence.EntityNotFoundException;
+import jakarta.transaction.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -19,16 +27,60 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class OrderService {
+    private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
+
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
+    private final BidRepository bidRepository;
     private final NotificationService notificationService;
+    private final PaymentService paymentService;
 
-    // Create order from successful bid
+    @Transactional
     public OrderResponse createOrder(Long bidId, String buyerNic, String farmerNic,
                                      Float quantity, Float pricePerKg) {
-        User farmer = userRepository.findById(farmerNic)
-                .orElseThrow(() -> new EntityNotFoundException("Farmer not found"));
+        try {
+            validateOrderCreationParams(bidId, buyerNic, farmerNic, quantity, pricePerKg);
 
+            User farmer = userRepository.findById(farmerNic)
+                    .orElseThrow(() -> new EntityNotFoundException("Farmer not found with NIC: " + farmerNic));
+
+            Bid bid = validateAndGetBid(bidId);
+
+            Order order = createOrderEntity(bidId, buyerNic, farmerNic, quantity, pricePerKg, farmer, bid);
+            Order savedOrder = orderRepository.save(order);
+
+            updateBidStatus(bid);
+            sendOrderNotifications(savedOrder, Notification.NotificationType.ORDER_CREATED);
+
+            return convertToResponse(savedOrder);
+
+        } catch (Exception e) {
+            logger.error("Error creating order: ", e);
+            throw e;
+        }
+    }
+
+    private void validateOrderCreationParams(Long bidId, String buyerNic, String farmerNic,
+                                             Float quantity, Float pricePerKg) {
+        if (bidId == null || buyerNic == null || farmerNic == null ||
+                quantity == null || pricePerKg == null) {
+            throw new IllegalArgumentException("All parameters are required");
+        }
+    }
+
+    private Bid validateAndGetBid(Long bidId) {
+        Bid bid = bidRepository.findById(bidId)
+                .orElseThrow(() -> new EntityNotFoundException("Bid not found with ID: " + bidId));
+
+        if (bid.getStatus() != Bid.BidStatus.ACTIVE && bid.getStatus() != Bid.BidStatus.ACCEPTED) {
+            throw new IllegalStateException("Bid must be ACTIVE or ACCEPTED to create order. Current status: " + bid.getStatus());
+        }
+
+        return bid;
+    }
+
+    private Order createOrderEntity(Long bidId, String buyerNic, String farmerNic,
+                                    Float quantity, Float pricePerKg, User farmer, Bid bid) {
         Order order = new Order();
         order.setBidId(bidId);
         order.setBuyerNic(buyerNic);
@@ -36,6 +88,10 @@ public class OrderService {
         order.setQuantity(quantity);
         order.setPricePerKg(pricePerKg);
         order.setTotalAmount(quantity * pricePerKg);
+        order.setOrderDate(LocalDateTime.now());
+        order.setPaymentDeadline(LocalDateTime.now().plusHours(24));
+        order.setHarvestDateFromBid(bid.getHarvestDate());
+        order.setStatus(Order.OrderStatus.PENDING_PAYMENT);
 
         // Set farmer's bank details
         order.setFarmerBankName(farmer.getBankName());
@@ -43,43 +99,114 @@ public class OrderService {
         order.setFarmerAccountNumber(farmer.getAccountNumber());
         order.setFarmerAccountHolderName(farmer.getAccountHolderName());
 
-        Order savedOrder = orderRepository.save(order);
-
-        // Notify both parties about order creation
-        notificationService.createOrderNotification(
-                farmerNic,
-                savedOrder.getId(),
-                savedOrder.getOrderNumber(),
-                Notification.NotificationType.ORDER_CREATED
-        );
-
-        notificationService.createOrderNotification(
-                buyerNic,
-                savedOrder.getId(),
-                savedOrder.getOrderNumber(),
-                Notification.NotificationType.ORDER_CREATED
-        );
-
-        return convertToResponse(savedOrder);
+        return order;
     }
 
-    // Update payment details
+    private void updateBidStatus(Bid bid) {
+        if (bid.getStatus() == Bid.BidStatus.ACTIVE) {
+            bid.setStatus(Bid.BidStatus.ACCEPTED);
+            bidRepository.save(bid);
+        }
+    }
+
+    @Transactional
     public OrderResponse updatePayment(Long orderId, OrderPaymentRequest request) {
+        try {
+            Order order = validatePaymentUpdate(orderId);
+
+            Payment payment = paymentService.initializePayment(orderId, request.getPaymentMethod());
+
+            order.updatePaymentDetails(payment);
+            Order savedOrder = orderRepository.save(order);
+
+            sendPaymentNotifications(savedOrder);
+
+            return convertToResponse(savedOrder);
+        } catch (Exception e) {
+            logger.error("Error updating payment: ", e);
+            throw e;
+        }
+    }
+
+
+    private Order validatePaymentUpdate(Long orderId) {
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new EntityNotFoundException("Order not found"));
+                .orElseThrow(() -> new EntityNotFoundException("Order not found with ID: " + orderId));
 
         if (order.getStatus() != Order.OrderStatus.PENDING_PAYMENT) {
             throw new IllegalStateException("Order is not in pending payment status");
         }
 
-        order.setPaymentMethod(request.getPaymentMethod());
-        order.setPaymentReference(request.getPaymentReference());
-        order.setPaymentDate(LocalDateTime.now());
-        order.setStatus(Order.OrderStatus.PAYMENT_COMPLETED);
+        if (LocalDateTime.now().isAfter(order.getPaymentDeadline())) {
+            throw new IllegalStateException("Payment deadline has passed");
+        }
 
-        Order savedOrder = orderRepository.save(order);
+        return order;
+    }
 
-        // Notify farmer about payment
+
+    @Scheduled(fixedRate = 60000)
+    @Transactional
+    public void processOrders() {
+        try {
+            List<Order> pendingOrders = orderRepository.findByStatus(Order.OrderStatus.PENDING_PAYMENT);
+            pendingOrders.forEach(this::processPendingOrder);
+        } catch (Exception e) {
+            logger.error("Error in order processing scheduler: ", e);
+        }
+    }
+
+    private void processPendingOrder(Order order) {
+        try {
+            if (LocalDateTime.now().isAfter(order.getPaymentDeadline())) {
+                cancelOrder(order);
+            } else if (order.getPaymentDeadline().minusHours(2).isBefore(LocalDateTime.now())) {
+                sendPaymentReminder(order);
+            }
+        } catch (Exception e) {
+            logger.error("Error processing order {}: ", order.getId(), e);
+        }
+    }
+
+    private void cancelOrder(Order order) {
+        order.markAsCancelled();
+        orderRepository.save(order);
+
+        Bid bid = bidRepository.findById(order.getBidId())
+                .orElseThrow(() -> new EntityNotFoundException("Bid not found"));
+        bid.setStatus(Bid.BidStatus.ACTIVE);
+        bidRepository.save(bid);
+
+        sendOrderNotifications(order, Notification.NotificationType.ORDER_STATUS_CHANGE);
+    }
+
+    private void sendPaymentReminder(Order order) {
+        notificationService.createPaymentNotification(
+                order.getBuyerNic(),
+                order.getId(),
+                order.getOrderNumber(),
+                Notification.NotificationType.PAYMENT_REMINDER,
+                order.getTotalAmount()
+        );
+    }
+
+    private void sendOrderNotifications(Order order, Notification.NotificationType type) {
+        notificationService.createOrderNotification(
+                order.getBuyerNic(),
+                order.getId(),
+                order.getOrderNumber(),
+                type
+        );
+
+        notificationService.createOrderNotification(
+                order.getFarmerNic(),
+                order.getId(),
+                order.getOrderNumber(),
+                type
+        );
+    }
+
+    private void sendPaymentNotifications(Order order) {
         notificationService.createPaymentNotification(
                 order.getFarmerNic(),
                 order.getId(),
@@ -88,7 +215,6 @@ public class OrderService {
                 order.getTotalAmount()
         );
 
-        // Notify buyer about payment confirmation
         notificationService.createPaymentNotification(
                 order.getBuyerNic(),
                 order.getId(),
@@ -96,55 +222,33 @@ public class OrderService {
                 Notification.NotificationType.PAYMENT_RECEIVED,
                 order.getTotalAmount()
         );
-
-        return convertToResponse(savedOrder);
     }
 
-    // Check payment deadlines every minute
-    @Scheduled(fixedRate = 60000)
-    public void processOrders() {
-        List<Order> pendingOrders = orderRepository.findByStatus(Order.OrderStatus.PENDING_PAYMENT);
-
-        for(Order order : pendingOrders) {
-            if(LocalDateTime.now().isAfter(order.getPaymentDeadline())) {
-                order.setStatus(Order.OrderStatus.CANCELLED);
-                orderRepository.save(order);
-
-                // Notify both parties about cancellation
-                notificationService.createOrderNotification(
-                        order.getBuyerNic(),
-                        order.getId(),
-                        order.getOrderNumber(),
-                        Notification.NotificationType.ORDER_STATUS_CHANGE
-                );
-
-                notificationService.createOrderNotification(
-                        order.getFarmerNic(),
-                        order.getId(),
-                        order.getOrderNumber(),
-                        Notification.NotificationType.ORDER_STATUS_CHANGE
-                );
-            } else if(order.getPaymentDeadline().minusHours(2).isBefore(LocalDateTime.now())) {
-                // Send payment reminder 2 hours before deadline
-                notificationService.createPaymentNotification(
-                        order.getBuyerNic(),
-                        order.getId(),
-                        order.getOrderNumber(),
-                        Notification.NotificationType.PAYMENT_REMINDER,
-                        order.getTotalAmount()
-                );
-            }
-        }
-    }
-
-    // Admin: Get all orders
+    // Query Methods
     public List<OrderResponse> getAllOrders() {
         return orderRepository.findAll().stream()
                 .map(this::convertToResponse)
                 .collect(Collectors.toList());
     }
 
-    // Admin: Get order statistics
+    public OrderResponse getOrderDetails(Long orderId) {
+        return orderRepository.findById(orderId)
+                .map(this::convertToResponse)
+                .orElseThrow(() -> new EntityNotFoundException("Order not found with ID: " + orderId));
+    }
+
+    public List<OrderResponse> getBuyerOrders(String buyerNic) {
+        return orderRepository.findByBuyerNic(buyerNic).stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
+    public List<OrderResponse> getFarmerOrders(String farmerNic) {
+        return orderRepository.findByFarmerNic(farmerNic).stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
     public Map<String, Object> getOrderStatistics() {
         List<Order> allOrders = orderRepository.findAll();
 
@@ -167,51 +271,35 @@ public class OrderService {
         );
     }
 
-    // Get buyer's orders
-    public List<OrderResponse> getBuyerOrders(String buyerNic) {
-        return orderRepository.findByBuyerNic(buyerNic).stream()
-                .map(this::convertToResponse)
-                .collect(Collectors.toList());
-    }
-
-    // Get farmer's orders
-    public List<OrderResponse> getFarmerOrders(String farmerNic) {
-        return orderRepository.findByFarmerNic(farmerNic).stream()
-                .map(this::convertToResponse)
-                .collect(Collectors.toList());
-    }
-
-    // Get single order details
-    public OrderResponse getOrderDetails(Long orderId) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new EntityNotFoundException("Order not found"));
-        return convertToResponse(order);
-    }
-
-    // Update order status (admin function)
+    @Transactional
     public OrderResponse updateOrderStatus(Long orderId, Order.OrderStatus newStatus) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new EntityNotFoundException("Order not found"));
+        try {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new EntityNotFoundException("Order not found with ID: " + orderId));
 
-        order.setStatus(newStatus);
-        Order savedOrder = orderRepository.save(order);
+            Order.OrderStatus oldStatus = order.getStatus();
+            order.setStatus(newStatus);
+            Order savedOrder = orderRepository.save(order);
 
-        // Notify both parties about status change
-        notificationService.createOrderNotification(
-                order.getBuyerNic(),
-                order.getId(),
-                order.getOrderNumber(),
-                Notification.NotificationType.ORDER_STATUS_CHANGE
-        );
+            if (newStatus == Order.OrderStatus.CANCELLED && oldStatus != Order.OrderStatus.CANCELLED) {
+                handleOrderCancellation(order);
+            }
 
-        notificationService.createOrderNotification(
-                order.getFarmerNic(),
-                order.getId(),
-                order.getOrderNumber(),
-                Notification.NotificationType.ORDER_STATUS_CHANGE
-        );
+            sendOrderNotifications(savedOrder, Notification.NotificationType.ORDER_STATUS_CHANGE);
 
-        return convertToResponse(savedOrder);
+            return convertToResponse(savedOrder);
+
+        } catch (Exception e) {
+            logger.error("Error updating order status: ", e);
+            throw e;
+        }
+    }
+
+    private void handleOrderCancellation(Order order) {
+        Bid bid = bidRepository.findById(order.getBidId())
+                .orElseThrow(() -> new EntityNotFoundException("Bid not found"));
+        bid.setStatus(Bid.BidStatus.ACTIVE);
+        bidRepository.save(bid);
     }
 
     private OrderResponse convertToResponse(Order order) {
@@ -226,6 +314,7 @@ public class OrderService {
         response.setTotalAmount(order.getTotalAmount());
         response.setOrderDate(order.getOrderDate());
         response.setPaymentDeadline(order.getPaymentDeadline());
+        response.setHarvestDate(LocalDate.from(order.getHarvestDate()));
         response.setFarmerBankName(order.getFarmerBankName());
         response.setFarmerBankBranch(order.getFarmerBankBranch());
         response.setFarmerAccountNumber(order.getFarmerAccountNumber());

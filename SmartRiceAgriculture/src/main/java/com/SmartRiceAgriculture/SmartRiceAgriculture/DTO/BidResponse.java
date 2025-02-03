@@ -6,7 +6,6 @@ import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
 
-// BidResponse.java
 @Data
 public class BidResponse {
     private Long id;
@@ -18,6 +17,7 @@ public class BidResponse {
     private String location;
     private LocalDateTime postedDate;
     private LocalDateTime expiryDate;
+    private LocalDateTime harvestDate;  // Added this field
     private Bid.BidStatus status;
     private List<BidOfferResponse> bidOffers;
     private String winningBuyerNic;

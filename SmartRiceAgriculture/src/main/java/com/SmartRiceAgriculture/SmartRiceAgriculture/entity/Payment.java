@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 @Entity
 @Table(name = "payments")
@@ -19,7 +20,7 @@ public class Payment {
     private Long id;
 
     @Column(unique = true, nullable = false)
-    private String paymentNumber; // Format: PAY-2024-001
+    private String paymentNumber;
 
     @Column(nullable = false)
     private Long orderId;
@@ -41,8 +42,8 @@ public class Payment {
     @Column(nullable = false)
     private PaymentStatus status = PaymentStatus.PENDING;
 
-    private String transactionReference; // Bank reference, payment gateway ID, etc.
-    private String paymentProofDocumentPath; // Path to uploaded proof document
+    private String transactionReference;
+    private String paymentProofDocumentPath;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
@@ -71,14 +72,44 @@ public class Payment {
     private String paymentGatewayTransactionId;
     private String paymentGatewayStatus;
 
+    @Transient
+    private static final Object SEQUENCE_LOCK = new Object();
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
-        if (paymentNumber == null) {
-            paymentNumber = String.format("PAY-%d-%03d",
-                    createdAt.getYear(),
-                    id != null ? id : 1);
+        setInitialStatus();
+    }
+
+    public void setInitialStatus() {
+        if (status == null) {
+            status = PaymentStatus.PENDING;
         }
+        if (attemptCount == null) {
+            attemptCount = 0;
+        }
+    }
+
+    public void recordAttempt(String failureReason) {
+        this.attemptCount++;
+        this.lastAttemptAt = LocalDateTime.now();
+        this.failureReason = failureReason;
+    }
+
+    public void markAsCompleted() {
+        this.status = PaymentStatus.COMPLETED;
+        this.completedAt = LocalDateTime.now();
+    }
+
+    public boolean isValid() {
+        return switch (paymentMethod) {
+            case BANK_TRANSFER -> senderBankName != null &&
+                    senderAccountNumber != null &&
+                    transferDate != null;
+            case CASH_ON_DELIVERY -> deliveryAddress != null &&
+                    scheduledDeliveryDate != null;
+            case ONLINE_PAYMENT -> paymentGatewayName != null;
+        };
     }
 
     public enum PaymentMethod {
@@ -88,44 +119,11 @@ public class Payment {
     }
 
     public enum PaymentStatus {
-        PENDING,         // Initial state
-        PROCESSING,      // Payment is being processed
-        COMPLETED,       // Payment successfully completed
-        FAILED,         // Payment attempt failed
-        CANCELLED,      // Payment cancelled by user or admin
-        REFUNDED        // Payment was refunded
-    }
-
-    // Method to update attempt count and time
-    public void recordAttempt(String failureReason) {
-        this.attemptCount++;
-        this.lastAttemptAt = LocalDateTime.now();
-        this.failureReason = failureReason;
-    }
-
-    // Method to mark payment as completed
-    public void markAsCompleted() {
-        this.status = PaymentStatus.COMPLETED;
-        this.completedAt = LocalDateTime.now();
-    }
-
-    // Method to validate payment based on method
-    public boolean isValid() {
-        switch (paymentMethod) {
-            case BANK_TRANSFER:
-                return senderBankName != null &&
-                        senderAccountNumber != null &&
-                        transferDate != null;
-
-            case CASH_ON_DELIVERY:
-                return deliveryAddress != null &&
-                        scheduledDeliveryDate != null;
-
-            case ONLINE_PAYMENT:
-                return paymentGatewayName != null;
-
-            default:
-                return false;
-        }
+        PENDING,
+        PROCESSING,
+        COMPLETED,
+        FAILED,
+        CANCELLED,
+        REFUNDED
     }
 }

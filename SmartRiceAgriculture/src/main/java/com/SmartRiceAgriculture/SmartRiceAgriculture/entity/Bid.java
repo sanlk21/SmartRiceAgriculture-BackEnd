@@ -18,15 +18,14 @@ public class Bid {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Farmer's listing details
     @Column(nullable = false)
     private String farmerNic;
 
     @Column(nullable = false)
-    private Float quantity; // in kg
+    private Float quantity;
 
     @Column(nullable = false)
-    private Float minimumPrice; // price per kg
+    private Float minimumPrice;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -38,10 +37,12 @@ public class Bid {
     @Column(nullable = false)
     private LocalDateTime expiryDate;
 
+    @Column(nullable = false)
+    private LocalDateTime harvestDate;
+
     private String description;
     private String location;
 
-    // Bidding details
     @ElementCollection
     @CollectionTable(
             name = "bid_offers",
@@ -58,9 +59,38 @@ public class Bid {
     private BidStatus status = BidStatus.ACTIVE;
 
     @PrePersist
-    protected void onCreate() {
-        postedDate = LocalDateTime.now();
-        expiryDate = postedDate.plusDays(7);
+    @PreUpdate
+    protected void validateAndInitialize() {
+        validateHarvestDate();
+        initializeDates();
+    }
+
+    private void validateHarvestDate() {
+        if (harvestDate == null) {
+            throw new IllegalArgumentException("Harvest date must be specified");
+        }
+
+        if (harvestDate.isBefore(LocalDateTime.now())) {
+            throw new IllegalArgumentException("Harvest date must be in the future");
+        }
+    }
+
+    private void initializeDates() {
+        LocalDateTime now = LocalDateTime.now();
+
+        if (postedDate == null) {
+            postedDate = now;
+        }
+
+        if (expiryDate == null) {
+            expiryDate = postedDate.plusDays(7);
+        }
+    }
+
+    public void setStatus(BidStatus newStatus) {
+        LocalDateTime currentHarvestDate = this.harvestDate;
+        this.status = newStatus;
+        this.harvestDate = currentHarvestDate;
     }
 
     @Embeddable
@@ -94,7 +124,24 @@ public class Bid {
     public enum BidStatus {
         ACTIVE,      // Bid is open for buyers
         EXPIRED,     // 7 days passed without successful bid
+        ACCEPTED,    // Bid has been accepted by farmer
         COMPLETED,   // Successful bid and transaction completed
         CANCELLED   // Cancelled by farmer or admin
+    }
+
+    // Helper methods to ensure harvest date is preserved
+    public void setHarvestDate(LocalDateTime harvestDate) {
+        this.harvestDate = harvestDate;
+        validateHarvestDate();
+    }
+
+    public LocalDateTime getHarvestDate() {
+        return this.harvestDate;
+    }
+
+    public void updateBidStatus(BidStatus newStatus) {
+        LocalDateTime currentHarvestDate = this.harvestDate;
+        this.status = newStatus;
+        this.harvestDate = currentHarvestDate;
     }
 }

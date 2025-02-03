@@ -99,6 +99,13 @@ public class BidController {
         return ResponseEntity.ok(bidService.getBuyerWinningBids(buyerNic));
     }
 
+    @PostMapping("/{bidId}/accept-offer")
+    public ResponseEntity<BidResponse> acceptOffer(
+            @PathVariable Long bidId,
+            @RequestParam String buyerNic) {
+        return ResponseEntity.ok(bidService.acceptOffer(bidId, buyerNic));
+    }
+
     // Get single bid details
     @GetMapping("/{bidId}")
     public ResponseEntity<BidResponse> getBidDetails(@PathVariable Long bidId) {

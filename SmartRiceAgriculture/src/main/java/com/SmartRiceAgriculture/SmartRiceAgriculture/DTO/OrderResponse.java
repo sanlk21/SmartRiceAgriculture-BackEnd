@@ -1,11 +1,16 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.DTO;
 
-import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Order.OrderStatus;
-import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Order.PaymentMethod;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Order;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
 public class OrderResponse {
     private Long id;
     private String orderNumber;
@@ -17,13 +22,13 @@ public class OrderResponse {
     private Float totalAmount;
     private LocalDateTime orderDate;
     private LocalDateTime paymentDeadline;
+    private LocalDate harvestDate;  // Added this field
     private String farmerBankName;
     private String farmerBankBranch;
     private String farmerAccountNumber;
     private String farmerAccountHolderName;
-    private PaymentMethod paymentMethod;
+    private Order.PaymentMethod paymentMethod;
     private String paymentReference;
     private LocalDateTime paymentDate;
-    private OrderStatus status;
+    private Order.OrderStatus status;
 }
-

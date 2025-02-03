@@ -26,7 +26,10 @@ public class PaymentController {
     @PostMapping("/initialize")
     @PreAuthorize("hasRole('BUYER')")
     public ResponseEntity<PaymentResponse> initializePayment(@RequestBody PaymentInitRequest request) {
-        Payment payment = paymentService.initializePayment(request.getOrderId(), request.getPaymentMethod());
+        Payment payment = paymentService.initializePayment(
+                request.getOrderId(),
+                request.getPaymentMethod()
+        );
         return ResponseEntity.ok(paymentMapper.toResponse(payment));
     }
 

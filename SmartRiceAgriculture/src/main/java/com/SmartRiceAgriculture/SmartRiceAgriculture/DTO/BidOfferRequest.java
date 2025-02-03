@@ -6,5 +6,6 @@ import lombok.Data;
 @Data
 public class BidOfferRequest {
     private Long bidId;
+    private String buyerNic;  // Add this field
     private Float bidAmount;
 }

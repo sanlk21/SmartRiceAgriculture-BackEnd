@@ -1,21 +1,19 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.service;
 
-import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.BidCreateRequest;
-import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.BidOfferRequest;
-import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.BidOfferResponse;
-import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.BidResponse;
+import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.*;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Bid;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.entity.Notification;
 import com.SmartRiceAgriculture.SmartRiceAgriculture.Repository.BidRepository;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.security.core.context.SecurityContextHolder;
+
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Comparator;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -25,27 +23,30 @@ import java.util.stream.Stream;
 public class BidService {
     private final BidRepository bidRepository;
     private final NotificationService notificationService;
-    private final OrderService orderService; // Add this
+    private final OrderService orderService;
 
-
-    // Create a new bid listing (by farmer)
     public BidResponse createBid(BidCreateRequest request) {
-        String farmerNic = SecurityContextHolder.getContext().getAuthentication().getName();
+        // Validate the request
+        if (request.getFarmerNic() == null || request.getFarmerNic().isEmpty()) {
+            throw new IllegalArgumentException("Farmer NIC is required");
+        }
 
         Bid bid = new Bid();
-        bid.setFarmerNic(farmerNic);
+        bid.setFarmerNic(request.getFarmerNic());
         bid.setQuantity(request.getQuantity());
         bid.setMinimumPrice(request.getMinimumPrice());
         bid.setRiceVariety(request.getRiceVariety());
         bid.setDescription(request.getDescription());
         bid.setLocation(request.getLocation());
+        bid.setHarvestDate(request.getHarvestDate());
+        bid.setPostedDate(LocalDateTime.now());
         bid.setStatus(Bid.BidStatus.ACTIVE);
 
         Bid savedBid = bidRepository.save(bid);
 
         // Send notification to farmer confirming bid creation
         notificationService.createBidNotification(
-                farmerNic,
+                request.getFarmerNic(),
                 savedBid.getId(),
                 Notification.NotificationType.BID_PLACED,
                 savedBid.getMinimumPrice().toString()
@@ -56,7 +57,8 @@ public class BidService {
 
     // Place a bid (by buyer)
     public BidResponse placeBid(BidOfferRequest request) {
-        String buyerNic = SecurityContextHolder.getContext().getAuthentication().getName();
+        // Remove this line since we're not using security context
+        // String buyerNic = SecurityContextHolder.getContext().getAuthentication().getName();
 
         Bid bid = bidRepository.findById(request.getBidId())
                 .orElseThrow(() -> new EntityNotFoundException("Bid not found"));
@@ -69,9 +71,14 @@ public class BidService {
             throw new IllegalStateException("Bid amount is below minimum price");
         }
 
-        Bid.BidOffer bidOffer = new Bid.BidOffer(buyerNic, request.getBidAmount(), LocalDateTime.now());
-        bid.getBidOffers().add(bidOffer);
+        // Use buyerNic from request
+        Bid.BidOffer bidOffer = new Bid.BidOffer(
+                request.getBuyerNic(),  // Use NIC from request
+                request.getBidAmount(),
+                LocalDateTime.now()
+        );
 
+        bid.getBidOffers().add(bidOffer);
         Bid savedBid = bidRepository.save(bid);
 
         // Notify farmer about new bid
@@ -84,6 +91,85 @@ public class BidService {
 
         return convertToResponse(savedBid);
     }
+
+    @Transactional
+    public BidResponse acceptOffer(Long bidId, String buyerNic) {
+        // Find the bid
+        Bid bid = bidRepository.findById(bidId)
+                .orElseThrow(() -> new EntityNotFoundException("Bid not found"));
+
+        // Validate bid status
+        if (bid.getStatus() != Bid.BidStatus.ACTIVE) {
+            throw new IllegalStateException("Bid must be active to accept offers. Current status: " + bid.getStatus());
+        }
+
+        // Find the specific offer
+        Bid.BidOffer winningOffer = bid.getBidOffers().stream()
+                .filter(offer -> offer.getBuyerNic().equals(buyerNic))
+                .findFirst()
+                .orElseThrow(() -> new EntityNotFoundException("Offer not found for this buyer"));
+
+        try {
+            // Store the harvest date before any status changes
+            LocalDateTime harvestDate = bid.getHarvestDate();
+
+            // Update bid status and winning details
+            bid.setWinningBuyerNic(buyerNic);
+            bid.setWinningBidAmount(winningOffer.getBidAmount());
+            bid.setWinningBidDate(LocalDateTime.now());
+            bid.setStatus(Bid.BidStatus.ACCEPTED);
+            bid.setHarvestDate(harvestDate); // Ensure harvest date is preserved
+
+            // Save bid before creating order
+            Bid savedBid = bidRepository.save(bid);
+
+            // Create order
+            orderService.createOrder(
+                    savedBid.getId(),
+                    buyerNic,
+                    savedBid.getFarmerNic(),
+                    savedBid.getQuantity(),
+                    winningOffer.getBidAmount()
+            );
+
+            // Update bid status to COMPLETED only after successful order creation
+            savedBid.setStatus(Bid.BidStatus.COMPLETED);
+            savedBid.setHarvestDate(harvestDate); // Ensure harvest date is preserved
+            Bid completedBid = bidRepository.save(savedBid);
+
+            // Notify winning buyer
+            notificationService.createBidNotification(
+                    buyerNic,
+                    completedBid.getId(),
+                    Notification.NotificationType.BID_ACCEPTED,
+                    winningOffer.getBidAmount().toString()
+            );
+
+            // Notify other buyers about rejection
+            bid.getBidOffers().stream()
+                    .filter(offer -> !offer.getBuyerNic().equals(buyerNic))
+                    .forEach(offer -> notificationService.createBidNotification(
+                            offer.getBuyerNic(),
+                            completedBid.getId(),
+                            Notification.NotificationType.BID_REJECTED,
+                            offer.getBidAmount().toString()
+                    ));
+
+            return convertToResponse(completedBid);
+
+        } catch (Exception e) {
+            // If order creation fails, revert bid status to ACTIVE
+            LocalDateTime harvestDate = bid.getHarvestDate(); // Store harvest date
+            bid.setStatus(Bid.BidStatus.ACTIVE);
+            bid.setWinningBuyerNic(null);
+            bid.setWinningBidAmount(null);
+            bid.setWinningBidDate(null);
+            bid.setHarvestDate(harvestDate); // Restore harvest date
+            bidRepository.save(bid);
+            throw e;
+        }
+    }
+
 
     // Cancel bid (by farmer)
     public BidResponse cancelBid(Long bidId) {
@@ -170,6 +256,33 @@ public class BidService {
                 .collect(Collectors.toList());
     }
 
+    // Get farmer's bids
+    public List<BidResponse> getFarmerBids(String farmerNic) {
+        return bidRepository.findByFarmerNic(farmerNic)
+                .stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
+    // Get buyer's winning bids
+    public List<BidResponse> getBuyerWinningBids(String buyerNic) {
+        if (buyerNic == null || buyerNic.isEmpty()) {
+            throw new IllegalArgumentException("Buyer NIC is required");
+        }
+
+        List<Bid> winningBids = bidRepository.findByWinningBuyerNic(buyerNic);
+        return winningBids.stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
+    }
+
+    // Get single bid details
+    public BidResponse getBidDetails(Long bidId) {
+        Bid bid = bidRepository.findById(bidId)
+                .orElseThrow(() -> new EntityNotFoundException("Bid not found"));
+        return convertToResponse(bid);
+    }
+
     // Admin methods
     public List<BidResponse> getAllBids() {
         return bidRepository.findAll().stream()
@@ -182,26 +295,33 @@ public class BidService {
                 .orElseThrow(() -> new EntityNotFoundException("Bid not found"));
 
         bid.setStatus(newStatus);
-
-        // Notify relevant parties about status change
-        if (newStatus == Bid.BidStatus.COMPLETED) {
-            for (Bid.BidOffer offer : bid.getBidOffers()) {
-                notificationService.createBidNotification(
-                        offer.getBuyerNic(),
-                        bid.getId(),
-                        Notification.NotificationType.BID_ACCEPTED,
-                        offer.getBidAmount().toString()
-                );
-            }
-        }
-
         return convertToResponse(bidRepository.save(bid));
     }
 
+    public Map<String, Object> getBidStatistics() {
+        List<Bid> allBids = bidRepository.findAll();
+
+        return Map.of(
+                "totalActiveBids", allBids.stream()
+                        .filter(b -> b.getStatus() == Bid.BidStatus.ACTIVE).count(),
+                "totalCompletedBids", allBids.stream()
+                        .filter(b -> b.getStatus() == Bid.BidStatus.COMPLETED).count(),
+                "averagePrice", allBids.stream()
+                        .mapToDouble(Bid::getMinimumPrice)
+                        .average()
+                        .orElse(0.0),
+                "totalQuantity", allBids.stream()
+                        .mapToDouble(Bid::getQuantity)
+                        .sum()
+        );
+    }
+    // Add this method to your BidService class
     public BidResponse forceCompleteBid(Long bidId, String buyerNic, Float amount) {
+        // Find the bid
         Bid bid = bidRepository.findById(bidId)
                 .orElseThrow(() -> new EntityNotFoundException("Bid not found"));
 
+        // Update bid status and winning details
         bid.setWinningBuyerNic(buyerNic);
         bid.setWinningBidAmount(amount);
         bid.setWinningBidDate(LocalDateTime.now());
@@ -216,7 +336,10 @@ public class BidService {
                 amount
         );
 
-        // Notify winner and farmer
+        // Save the updated bid
+        Bid savedBid = bidRepository.save(bid);
+
+        // Notify winning buyer
         notificationService.createBidNotification(
                 buyerNic,
                 bid.getId(),
@@ -224,6 +347,7 @@ public class BidService {
                 amount.toString()
         );
 
+        // Notify farmer
         notificationService.createBidNotification(
                 bid.getFarmerNic(),
                 bid.getId(),
@@ -231,124 +355,25 @@ public class BidService {
                 amount.toString()
         );
 
-        return convertToResponse(bidRepository.save(bid));
-    }
-
-    public Map<String, Object> getBidStatistics() {
-        List<Bid> allBids = bidRepository.findAll();
-
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalActiveBids", allBids.stream()
-                .filter(b -> b.getStatus() == Bid.BidStatus.ACTIVE).count());
-        stats.put("totalCompletedBids", allBids.stream()
-                .filter(b -> b.getStatus() == Bid.BidStatus.COMPLETED).count());
-        stats.put("averagePrice", allBids.stream()
-                .mapToDouble(Bid::getMinimumPrice)
-                .average()
-                .orElse(0.0));
-        stats.put("totalQuantity", allBids.stream()
-                .mapToDouble(Bid::getQuantity)
-                .sum());
-
-        return stats;
-    }
-
-    // Get single bid details
-    public BidResponse getBidDetails(Long bidId) {
-        Bid bid = bidRepository.findById(bidId)
-                .orElseThrow(() -> new EntityNotFoundException("Bid not found with id: " + bidId));
-        return convertToResponse(bid);
-    }
-
-    // Get farmer's bids
-    public List<BidResponse> getFarmerBids(String farmerNic) {
-        return bidRepository.findByFarmerNic(farmerNic)
-                .stream()
-                .map(this::convertToResponse)
-                .collect(Collectors.toList());
-    }
-
-    // Get buyer's winning bids
-    public List<BidResponse> getBuyerWinningBids(String buyerNic) {
-        return bidRepository.findByWinningBuyerNic(buyerNic)
-                .stream()
-                .map(this::convertToResponse)
-                .collect(Collectors.toList());
-    }
-
-    // Scheduled task to process expired bids
-    @Scheduled(fixedRate = 60000)
-    public void processExpiredBids() {
-        List<Bid> expiredBids = bidRepository.findExpiredBids(LocalDateTime.now());
-
-        for (Bid bid : expiredBids) {
-            if (!bid.getBidOffers().isEmpty()) {
-                // Find highest bid
-                Bid.BidOffer winningOffer = bid.getBidOffers().stream()
-                        .max(Comparator
-                                .comparing(Bid.BidOffer::getBidAmount)
-                                .thenComparing(Bid.BidOffer::getBidDate))
-                        .get();
-
-                // Update bid status
-                bid.setWinningBuyerNic(winningOffer.getBuyerNic());
-                bid.setWinningBidAmount(winningOffer.getBidAmount());
-                bid.setWinningBidDate(winningOffer.getBidDate());
-                bid.setStatus(Bid.BidStatus.COMPLETED);
-
-                // Create order
-                orderService.createOrder(
-                        bid.getId(),
-                        winningOffer.getBuyerNic(),
-                        bid.getFarmerNic(),
-                        bid.getQuantity(),
-                        winningOffer.getBidAmount()
-                );
-
-                // Notify winning buyer
-                notificationService.createBidNotification(
-                        winningOffer.getBuyerNic(),
-                        bid.getId(),
-                        Notification.NotificationType.BID_ACCEPTED,
-                        winningOffer.getBidAmount().toString()
-                );
-
-                // Notify other buyers
-                bid.getBidOffers().stream()
-                        .filter(offer -> !offer.getBuyerNic().equals(winningOffer.getBuyerNic()))
-                        .forEach(offer -> notificationService.createBidNotification(
-                                offer.getBuyerNic(),
-                                bid.getId(),
-                                Notification.NotificationType.BID_REJECTED,
-                                offer.getBidAmount().toString()
-                        ));
-
-                // Notify farmer
-                notificationService.createBidNotification(
-                        bid.getFarmerNic(),
-                        bid.getId(),
-                        Notification.NotificationType.BID_ACCEPTED,
-                        winningOffer.getBidAmount().toString()
-                );
-
-            } else {
-                bid.setStatus(Bid.BidStatus.EXPIRED);
-                notificationService.createBidNotification(
-                        bid.getFarmerNic(),
-                        bid.getId(),
-                        Notification.NotificationType.BID_EXPIRED,
-                        null
-                );
-            }
-            bidRepository.save(bid);
+        // Notify other bidders their offers were rejected
+        if (bid.getBidOffers() != null) {
+            bid.getBidOffers().stream()
+                    .filter(offer -> !offer.getBuyerNic().equals(buyerNic))
+                    .forEach(offer -> notificationService.createBidNotification(
+                            offer.getBuyerNic(),
+                            bid.getId(),
+                            Notification.NotificationType.BID_REJECTED,
+                            offer.getBidAmount().toString()
+                    ));
         }
-    }
 
+        return convertToResponse(savedBid);
+    }
 
     private BidResponse convertToResponse(Bid bid) {
         BidResponse response = new BidResponse();
         response.setId(bid.getId());
-        response.setFarmerNic(bid.getFarmerNic());
+        response.setFarmerNic(bid.getFarmerNic());          // Keep actual farmer NIC
         response.setQuantity(bid.getQuantity());
         response.setMinimumPrice(bid.getMinimumPrice());
         response.setRiceVariety(bid.getRiceVariety());
@@ -357,10 +382,11 @@ public class BidService {
         response.setPostedDate(bid.getPostedDate());
         response.setExpiryDate(bid.getExpiryDate());
         response.setStatus(bid.getStatus());
+        response.setHarvestDate(bid.getHarvestDate());
         response.setBidOffers(bid.getBidOffers().stream()
-                .map(this::convertToOfferResponse)
+                .map(this::convertToOfferResponse)          // Keep actual buyer NICs
                 .collect(Collectors.toList()));
-        response.setWinningBuyerNic(bid.getWinningBuyerNic());
+        response.setWinningBuyerNic(bid.getWinningBuyerNic()); // Keep actual winning buyer NIC
         response.setWinningBidAmount(bid.getWinningBidAmount());
         response.setWinningBidDate(bid.getWinningBidDate());
         return response;
@@ -368,7 +394,7 @@ public class BidService {
 
     private BidOfferResponse convertToOfferResponse(Bid.BidOffer offer) {
         BidOfferResponse response = new BidOfferResponse();
-        response.setBuyerNic(offer.getBuyerNic());
+        response.setBuyerNic(offer.getBuyerNic());        // Keep actual buyer NIC
         response.setBidAmount(offer.getBidAmount());
         response.setBidDate(offer.getBidDate());
         return response;
