@@ -62,7 +62,7 @@ public class Notification {
         FERTILIZER_ALLOCATED,
         FERTILIZER_READY,
         FERTILIZER_COLLECTED,
-        FERTILIZER_EXPIRED
+        PAYMENT_COMPLETED, FERTILIZER_EXPIRED
     }
 
     public enum Priority {

@@ -206,23 +206,38 @@ public class PaymentService {
 
     @Transactional
     public Payment completePayment(Long paymentId) {
-        try {
-            Payment payment = paymentRepository.findById(paymentId)
-                    .orElseThrow(() -> new EntityNotFoundException("Payment not found"));
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found"));
 
-            Order order = orderRepository.findById(payment.getOrderId())
-                    .orElseThrow(() -> new EntityNotFoundException("Order not found"));
+        // Update the payment status
+        payment.setStatus(Payment.PaymentStatus.COMPLETED);
+        payment.setCompletedAt(LocalDateTime.now());
+        Payment savedPayment = paymentRepository.save(payment);
 
-            payment.markAsCompleted();
-            order.setStatus(Order.OrderStatus.PAYMENT_COMPLETED);
-            order.setPaymentDate(LocalDateTime.now());
+        // Update the associated order
+        Order order = orderRepository.findById(payment.getOrderId())
+                .orElseThrow(() -> new EntityNotFoundException("Order not found"));
+        order.setStatus(Order.OrderStatus.PAYMENT_COMPLETED);
+        orderRepository.save(order);
 
-            orderRepository.save(order);
-            return paymentRepository.save(payment);
-        } catch (Exception e) {
-            logger.error("Error completing payment {}: {}", paymentId, e.getMessage());
-            throw e;
-        }
+        // Send notifications
+        notificationService.createPaymentNotification(
+                payment.getBuyerNic(),
+                payment.getOrderId(),
+                order.getOrderNumber(),
+                Notification.NotificationType.PAYMENT_COMPLETED,
+                payment.getAmount()
+        );
+
+        notificationService.createPaymentNotification(
+                payment.getFarmerNic(),
+                payment.getOrderId(),
+                order.getOrderNumber(),
+                Notification.NotificationType.PAYMENT_COMPLETED,
+                payment.getAmount()
+        );
+
+        return savedPayment;
     }
 
     @Transactional
