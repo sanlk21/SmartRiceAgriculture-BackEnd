@@ -1,6 +1,5 @@
 package com.SmartRiceAgriculture.SmartRiceAgriculture.entity;
 
-
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -33,6 +32,9 @@ public class Notification {
     private Long bidId;
     private Long orderId;
 
+    @Column(nullable = false)
+    private boolean isRead = false;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private NotificationType type;
@@ -46,26 +48,47 @@ public class Notification {
         createdDate = LocalDateTime.now();
     }
 
+    public void markAsRead() {
+        this.isRead = true;
+    }
+
+    public boolean isRead() {
+        return this.isRead;
+    }
+
+    public void setIsRead(boolean isRead) {
+        this.isRead = isRead;
+    }
+
     public enum NotificationType {
-        // Existing types
+        // Bid-related notifications
         BID_PLACED,
         BID_ACCEPTED,
         BID_REJECTED,
         BID_EXPIRED,
+
+        // Order-related notifications
         ORDER_CREATED,
         ORDER_STATUS_CHANGE,
+
+        // Payment-related notifications
         PAYMENT_RECEIVED,
         PAYMENT_REMINDER,
+        PAYMENT_COMPLETED,
+
+        // Admin notifications
         ADMIN_BROADCAST,
 
-        // New fertilizer-related types
+        // Fertilizer-related notifications
         FERTILIZER_ALLOCATED,
         FERTILIZER_READY,
         FERTILIZER_COLLECTED,
-        PAYMENT_COMPLETED, FERTILIZER_EXPIRED
+        FERTILIZER_EXPIRED
     }
 
     public enum Priority {
-        MEDIUM
+        LOW,
+        MEDIUM,
+        HIGH
     }
 }
