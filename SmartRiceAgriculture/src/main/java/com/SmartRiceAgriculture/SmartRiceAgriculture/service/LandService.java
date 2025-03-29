@@ -14,6 +14,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -58,6 +60,23 @@ public class LandService {
         log.info("Successfully registered land with ID: {}", savedLand.getId());
 
         return landConverter.toDTO(savedLand);
+    }
+    @Transactional(readOnly = true)
+    public Resource getLandDocument(Long id) {
+        Land land = getLandById(id);
+        if (land.getDocumentPath() == null || land.getDocumentPath().isEmpty()) {
+            throw new DocumentStorageException("No document associated with land ID: " + id);
+        }
+
+        Path filePath = Paths.get(land.getDocumentPath());
+        Resource resource = new FileSystemResource(filePath.toFile());
+
+        if (!resource.exists() || !resource.isReadable()) {
+            throw new DocumentStorageException("Document file not found or unreadable for land ID: " + id);
+        }
+
+        log.info("Retrieved document {} for land ID: {}", land.getDocumentName(), id);
+        return resource;
     }
 
     @Transactional

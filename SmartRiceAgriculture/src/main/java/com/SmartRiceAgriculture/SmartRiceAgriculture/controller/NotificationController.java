@@ -1,3 +1,4 @@
+// NotificationController.java
 package com.SmartRiceAgriculture.SmartRiceAgriculture.controller;
 
 import com.SmartRiceAgriculture.SmartRiceAgriculture.DTO.AdminBroadcastRequestDTO;
@@ -9,8 +10,6 @@ import com.SmartRiceAgriculture.SmartRiceAgriculture.service.NotificationService
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -27,24 +26,21 @@ public class NotificationController {
     private final NotificationMapper notificationMapper;
 
     @GetMapping("/my")
-    public ResponseEntity<?> getMyNotifications(Authentication authentication) {
+    public ResponseEntity<?> getMyNotifications(@RequestHeader(value = "X-User-Nic", required = false) String userNic) {
         try {
-            if (authentication == null) {
+            if (userNic == null || userNic.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(Collections.singletonMap("error", "User not authenticated"));
+                        .body(Collections.singletonMap("error", "User NIC not provided"));
             }
 
-            String userNic = authentication.getName();
             List<Notification> notifications = notificationService.getUserNotifications(userNic);
-
             if (notifications == null || notifications.isEmpty()) {
                 return ResponseEntity.ok(Collections.emptyList());
             }
 
             List<NotificationResponseDTO> dtos = notifications.stream()
-                    .map(notification -> notificationMapper.toDTO(notification))
+                    .map(notificationMapper::toDTO)
                     .collect(Collectors.toList());
-
             return ResponseEntity.ok(dtos);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -53,7 +49,6 @@ public class NotificationController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> createNotification(@RequestBody NotificationRequestDTO request) {
         try {
             if (request == null || request.getTitle() == null || request.getDescription() == null) {
@@ -69,9 +64,7 @@ public class NotificationController {
                     request.getBidId(),
                     request.getOrderId()
             );
-
-            NotificationResponseDTO responseDTO = notificationMapper.toDTO(notification);
-            return ResponseEntity.ok(responseDTO);
+            return ResponseEntity.ok(notificationMapper.toDTO(notification));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Collections.singletonMap("error", "Failed to create notification: " + e.getMessage()));
@@ -79,7 +72,6 @@ public class NotificationController {
     }
 
     @PostMapping("/broadcast")
-    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> createBroadcast(@RequestBody AdminBroadcastRequestDTO request) {
         try {
             if (request == null || request.getTitle() == null || request.getDescription() == null) {
@@ -91,9 +83,7 @@ public class NotificationController {
                     request.getTitle(),
                     request.getDescription()
             );
-
-            NotificationResponseDTO responseDTO = notificationMapper.toDTO(broadcast);
-            return ResponseEntity.ok(responseDTO);
+            return ResponseEntity.ok(notificationMapper.toDTO(broadcast));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Collections.singletonMap("error", "Failed to create broadcast: " + e.getMessage()));
@@ -101,19 +91,16 @@ public class NotificationController {
     }
 
     @GetMapping("/broadcasts")
-    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> getAllBroadcasts() {
         try {
             List<Notification> broadcasts = notificationService.getAllBroadcasts();
-
             if (broadcasts == null || broadcasts.isEmpty()) {
                 return ResponseEntity.ok(Collections.emptyList());
             }
 
             List<NotificationResponseDTO> dtos = broadcasts.stream()
-                    .map(notification -> notificationMapper.toDTO(notification))
+                    .map(notificationMapper::toDTO)
                     .collect(Collectors.toList());
-
             return ResponseEntity.ok(dtos);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -122,12 +109,10 @@ public class NotificationController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> deleteNotification(@PathVariable Long id) {
         try {
             notificationService.deleteNotification(id);
-            return ResponseEntity.ok()
-                    .body(Collections.singletonMap("message", "Notification deleted successfully"));
+            return ResponseEntity.ok(Collections.singletonMap("message", "Notification deleted successfully"));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Collections.singletonMap("error", "Failed to delete notification: " + e.getMessage()));
@@ -135,19 +120,15 @@ public class NotificationController {
     }
 
     @PutMapping("/{id}/read")
-    public ResponseEntity<?> markAsRead(@PathVariable Long id, Authentication authentication) {
+    public ResponseEntity<?> markAsRead(@PathVariable Long id, @RequestHeader("X-User-Nic") String userNic) {
         try {
-            if (authentication == null) {
+            if (userNic == null || userNic.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(Collections.singletonMap("error", "User not authenticated"));
+                        .body(Collections.singletonMap("error", "User NIC not provided"));
             }
 
-            String userNic = authentication.getName();
             Notification notification = notificationService.markAsRead(id, userNic);
-            NotificationResponseDTO responseDTO = notificationMapper.toDTO(notification);
-
-            return ResponseEntity.ok()
-                    .body(Collections.singletonMap("message", "Notification marked as read"));
+            return ResponseEntity.ok(Collections.singletonMap("message", "Notification marked as read"));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Collections.singletonMap("error", "Failed to mark notification as read: " + e.getMessage()));
@@ -155,18 +136,15 @@ public class NotificationController {
     }
 
     @PutMapping("/mark-all-read")
-    public ResponseEntity<?> markAllAsRead(Authentication authentication) {
+    public ResponseEntity<?> markAllAsRead(@RequestHeader("X-User-Nic") String userNic) {
         try {
-            if (authentication == null) {
+            if (userNic == null || userNic.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(Collections.singletonMap("error", "User not authenticated"));
+                        .body(Collections.singletonMap("error", "User NIC not provided"));
             }
 
-            String userNic = authentication.getName();
             notificationService.markAllAsRead(userNic);
-
-            return ResponseEntity.ok()
-                    .body(Collections.singletonMap("message", "All notifications marked as read"));
+            return ResponseEntity.ok(Collections.singletonMap("message", "All notifications marked as read"));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Collections.singletonMap("error", "Failed to mark all notifications as read: " + e.getMessage()));

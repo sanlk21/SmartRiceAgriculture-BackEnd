@@ -8,6 +8,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -36,6 +37,13 @@ public class LandController {
     @GetMapping("/{id}")
     public ResponseEntity<LandResponseDTO> getLand(@PathVariable Long id) {
         return ResponseEntity.ok(landService.getLandResponseById(id));
+    }
+    @GetMapping("/{id}/document")
+    public ResponseEntity<Resource> getLandDocument(@PathVariable Long id) {
+        Resource document = landService.getLandDocument(id);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(landService.getLandById(id).getDocumentType()))
+                .body(document);
     }
 
     @GetMapping("/farmer/{farmerNic}")
